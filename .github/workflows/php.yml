@@ -124,7 +124,10 @@ jobs:
       - name: Install dependencies
         env:
           ARGS: ${{ inputs.composer-args }}
-        run: composer install $ARGS
+        # SC2086 intencional: ARGS contem multiplas flags separadas por espaco.
+        run: |
+          # shellcheck disable=SC2086
+          composer install $ARGS
 
       # Dependency scan: composer audit. Bloqueia em vulnerabilidades.
       # Pulado se run-dependency-scan=false (cliente legado).
