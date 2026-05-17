@@ -67,15 +67,19 @@ Workflows não contêm segredos em si — todos os secrets reais (registry, Slac
 ```
 .
 ├── .github/workflows/
-│   ├── base.yml          # reusable: scans + build + push da imagem
-│   ├── php.yml           # reusable: testes PHP + chama base.yml
-│   ├── node.yml          # reusable: testes Node + chama base.yml
-│   └── self-test.yml     # CI próprio: actionlint + valida pin nos examples
+│   ├── base.yml             # reusable: scans + build + push da imagem
+│   ├── php.yml              # reusable: testes PHP + chama base.yml
+│   ├── node.yml             # reusable: testes Node + chama base.yml
+│   ├── go.yml               # reusable: testes Go + chama base.yml
+│   └── self-test.yml        # CI próprio: actionlint + valida pin nos examples
 ├── examples/
-│   ├── consumer-php.yml  # template pronto pra repo cliente PHP
-│   └── consumer-node.yml # template pronto pra repo cliente Node
+│   ├── consumer-php.yml     # template PHP/Laravel
+│   ├── consumer-node.yml    # template Node genérico
+│   ├── consumer-nextjs.yml  # template Next.js (reusa node.yml)
+│   ├── consumer-nestjs.yml  # template NestJS (reusa node.yml)
+│   └── consumer-go.yml      # template Go
 ├── .gitignore
-└── README.md             # este arquivo
+└── README.md                # este arquivo
 ```
 
 ## 5. Workflows disponíveis
@@ -146,6 +150,26 @@ Wrapper Node/TypeScript. Aceita todos os inputs do `base.yml` mais:
 | `test-command` | string | `''` | Vazio = pula |
 
 Default de `semgrep-configs` é `p/owasp-top-ten p/typescript p/react`.
+
+### `go.yml`
+
+Wrapper Go. Aceita todos os inputs do `base.yml` mais:
+
+| Input | Tipo | Default | Descrição |
+|---|---|---|---|
+| `go-version` | string | `1.23` | Versão do Go |
+| `go-version-file` | string | `''` | `go.mod` para extrair versão (prevalece sobre `go-version`) |
+| `test-command` | string | `go test -race -count=1 ./...` | Comando de testes |
+| `build-tags` | string | `''` | Build tags do Go (csv) |
+| `run-go-vet` | boolean | `true` | Roda `go vet ./...` |
+| `run-staticcheck` | boolean | `false` | Roda staticcheck |
+| `run-golangci-lint` | boolean | `false` | Roda golangci-lint (precisa de `.golangci.yml`) |
+
+`run-dependency-scan` aciona `govulncheck` (ferramenta oficial Go). Default de `semgrep-configs` é `p/owasp-top-ten p/golang`.
+
+### Frameworks que reusam wrappers
+
+Não há wrapper dedicado para Next.js, NestJS, Vue, etc. — eles rodam em cima do `node.yml`. Ver `examples/consumer-nextjs.yml` e `examples/consumer-nestjs.yml` para configurações específicas (lint/typecheck/test command, build-args, semgrep-configs).
 
 ## 6. Como adotar em um repo cliente
 

@@ -1,0 +1,176 @@
+# ============================================================================
+# go.yml — wrapper Go.
+#
+# Adiciona testes e dependency scan especificos de Go antes de chamar base.yml.
+#
+# Fluxo:
+#   1. Job `test`: setup Go + cache modulos + go vet + staticcheck (opcional)
+#      + govulncheck (dependency scan) + go test.
+#   2. Job `pipeline`: chama base.yml. needs: test.
+# ============================================================================
+name: Go pipeline
+
+on:
+  workflow_call:
+    inputs:
+      # ----- inputs especificos de Go ----------------------------------------
+      go-version:
+        description: 'Versao do Go (default 1.23).'
+        required: false
+        type: string
+        default: '1.23'
+      go-version-file:
+        description: 'Arquivo go.mod pra extrair versao automaticamente. Se setado, prevalece sobre go-version.'
+        required: false
+        type: string
+        default: ''
+      test-command:
+        description: 'Comando de testes. Default cobre todos pacotes com race detector.'
+        required: false
+        type: string
+        default: 'go test -race -count=1 ./...'
+      build-tags:
+        description: 'Build tags do Go (csv).'
+        required: false
+        type: string
+        default: ''
+      run-go-vet:
+        description: 'Roda `go vet ./...`.'
+        required: false
+        type: boolean
+        default: true
+      run-staticcheck:
+        description: 'Roda honnef.co/go/tools/cmd/staticcheck.'
+        required: false
+        type: boolean
+        default: false
+      run-golangci-lint:
+        description: 'Roda golangci-lint (precisa de .golangci.yml no repo).'
+        required: false
+        type: boolean
+        default: false
+
+      # ----- inputs repassados pro base.yml ----------------------------------
+      image-name:        { required: true,  type: string }
+      registry:          { required: true,  type: string }
+      image-tag:         { required: false, type: string, default: '' }
+      dockerfile:        { required: false, type: string, default: 'Dockerfile' }
+      dockerfile-target: { required: false, type: string, default: '' }
+      build-args:        { required: false, type: string, default: '' }
+      build-context:     { required: false, type: string, default: '.' }
+      platforms:         { required: false, type: string, default: 'linux/amd64' }
+      do-push:           { required: false, type: boolean, default: true }
+      block-on-failure:  { required: false, type: boolean, default: true }
+      run-secrets-scan:    { required: false, type: boolean, default: true }
+      run-vuln-scan:       { required: false, type: boolean, default: true }
+      run-sast:            { required: false, type: boolean, default: true }
+      run-dependency-scan: { required: false, type: boolean, default: true }
+      run-container-scan:  { required: false, type: boolean, default: true }
+      semgrep-configs:   { required: false, type: string, default: 'p/owasp-top-ten p/golang' }
+      pr-report:         { required: false, type: boolean, default: true }
+      notify-channel:    { required: false, type: string, default: 'none' }
+      notify-on:         { required: false, type: string, default: 'failure' }
+      slack-channel:     { required: false, type: string, default: '' }
+      email-to:          { required: false, type: string, default: '' }
+
+    secrets:
+      REGISTRY_USERNAME:    { required: false }
+      REGISTRY_PASSWORD:    { required: false }
+      SLACK_WEBHOOK_URL:    { required: false }
+      SMTP_HOST:            { required: false }
+      SMTP_PORT:            { required: false }
+      SMTP_USERNAME:        { required: false }
+      SMTP_PASSWORD:        { required: false }
+      SMTP_FROM:            { required: false }
+
+permissions:
+  contents: read
+
+jobs:
+  # ===========================================================================
+  # Testes Go
+  # ---------------------------------------------------------------------------
+  # actions/setup-go ja faz cache automatico de modulos e build cache.
+  # go-version-file (se passado) tem prioridade sobre go-version.
+  # ===========================================================================
+  test:
+    name: Test (Go ${{ inputs.go-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+          go-version-file: ${{ inputs.go-version-file }}
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: go vet
+        if: inputs.run-go-vet
+        env:
+          TAGS: ${{ inputs.build-tags }}
+        run: |
+          if [ -n "$TAGS" ]; then
+            go vet -tags "$TAGS" ./...
+          else
+            go vet ./...
+          fi
+
+      - name: staticcheck
+        if: inputs.run-staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck ./...
+
+      - name: golangci-lint
+        if: inputs.run-golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+      # Dependency scan: govulncheck (oficial Go). Bloqueia em vulns ativas.
+      - name: govulncheck
+        if: inputs.run-dependency-scan
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - name: Run tests
+        env:
+          CMD: ${{ inputs.test-command }}
+        run: bash -c "$CMD"
+
+  # ===========================================================================
+  # Pipeline (chama base.yml)
+  # ===========================================================================
+  pipeline:
+    name: Pipeline
+    needs: test
+    uses: ./.github/workflows/base.yml
+    secrets: inherit
+    with:
+      image-name:          ${{ inputs.image-name }}
+      registry:            ${{ inputs.registry }}
+      image-tag:           ${{ inputs.image-tag }}
+      dockerfile:          ${{ inputs.dockerfile }}
+      dockerfile-target:   ${{ inputs.dockerfile-target }}
+      build-args:          ${{ inputs.build-args }}
+      build-context:       ${{ inputs.build-context }}
+      platforms:           ${{ inputs.platforms }}
+      do-push:             ${{ inputs.do-push }}
+      block-on-failure:    ${{ inputs.block-on-failure }}
+      run-secrets-scan:    ${{ inputs.run-secrets-scan }}
+      run-vuln-scan:       ${{ inputs.run-vuln-scan }}
+      run-sast:            ${{ inputs.run-sast }}
+      run-dependency-scan: ${{ inputs.run-dependency-scan }}
+      run-container-scan:  ${{ inputs.run-container-scan }}
+      semgrep-configs:     ${{ inputs.semgrep-configs }}
+      pr-report:           ${{ inputs.pr-report }}
+      notify-channel:      ${{ inputs.notify-channel }}
+      notify-on:           ${{ inputs.notify-on }}
+      slack-channel:       ${{ inputs.slack-channel }}
+      email-to:            ${{ inputs.email-to }}

@@ -1,0 +1,56 @@
+# ============================================================================
+# Exemplo de consumidor Next.js.
+#
+# Reusa o node.yml com defaults proprios de Next: build via `next build`,
+# typecheck via tsc (next ja gera tsconfig), lint via `next lint`.
+#
+# Copie para `.github/workflows/ci.yml` no repo da aplicacao.
+# ============================================================================
+name: CI
+
+on:
+  pull_request:
+    branches: [main, homolog]
+  push:
+    branches: [main, homolog]
+
+jobs:
+  ci:
+    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.0.0
+    secrets: inherit
+    with:
+      # ----- obrigatorios ---------------------------------------------------
+      image-name: meu-app-web
+      registry: registry.cliente.com.br
+
+      # ----- Node / Next ----------------------------------------------------
+      node-version: '22'
+      package-manager: 'yarn'              # yarn | npm
+      # Lint e typecheck do Next:
+      lint-command: 'yarn next lint'
+      typecheck-command: 'yarn tsc --noEmit'
+      # Em geral testes ficam em jest/vitest:
+      test-command: 'yarn test --ci'
+
+      # ----- comportamento por branch ---------------------------------------
+      do-push: ${{ github.event_name == 'push' }}
+      block-on-failure: ${{ github.ref == 'refs/heads/main' }}
+
+      # ----- toggles de seguranca -------------------------------------------
+      # run-sast: true   # Semgrep ja vem com p/typescript+p/react por padrao
+
+      # ----- notificacao ----------------------------------------------------
+      notify-channel: slack
+      notify-on: failure
+      slack-channel: '#ci-cliente-a'
+
+      # ----- Next.js: build-args ao buildar a imagem ------------------------
+      # Variaveis publicas (NEXT_PUBLIC_*) precisam estar no momento do build,
+      # nao no runtime. Passe-as via build-args.
+      build-args: |
+        NEXT_PUBLIC_API_URL=https://api.cliente.com
+        NEXT_PUBLIC_APP_ENV=production
+
+      # ----- avancado -------------------------------------------------------
+      # dockerfile-target: 'runner'         # padrao da imagem oficial do Next
+      # platforms: 'linux/amd64'

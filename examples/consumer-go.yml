@@ -1,0 +1,53 @@
+# ============================================================================
+# Exemplo de consumidor Go.
+#
+# Copie para `.github/workflows/ci.yml` no repo da aplicacao.
+# ============================================================================
+name: CI
+
+on:
+  pull_request:
+    branches: [main, homolog]
+  push:
+    branches: [main, homolog]
+
+jobs:
+  ci:
+    uses: widesoftware-dev/github-workflows/.github/workflows/go.yml@v1.0.0
+    secrets: inherit
+    with:
+      # ----- obrigatorios ---------------------------------------------------
+      image-name: meu-app-api
+      registry: registry.cliente.com.br
+
+      # ----- Go -------------------------------------------------------------
+      # Use go-version-file pra extrair direto do go.mod (recomendado).
+      go-version-file: 'go.mod'
+      # ou go-version: '1.23'
+      test-command: 'go test -race -count=1 ./...'
+      run-go-vet: true
+      run-staticcheck: true
+      # run-golangci-lint: true    # precisa de .golangci.yml no repo
+
+      # ----- comportamento por branch ---------------------------------------
+      do-push: ${{ github.event_name == 'push' }}
+      block-on-failure: ${{ github.ref == 'refs/heads/main' }}
+
+      # ----- toggles de seguranca -------------------------------------------
+      # run-secrets-scan: true
+      # run-vuln-scan: true
+      # run-sast: true
+      # run-dependency-scan: true   # roda govulncheck
+      # run-container-scan: true
+
+      # ----- notificacao ----------------------------------------------------
+      notify-channel: slack
+      notify-on: failure
+      slack-channel: '#ci-cliente-a'
+
+      # ----- avancado -------------------------------------------------------
+      # build-tags: 'integration,unit'
+      # dockerfile-target: 'release'
+      # platforms: 'linux/amd64,linux/arm64'
+      # build-args: |
+      #   VERSION=${{ github.ref_name }}

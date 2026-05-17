@@ -1,0 +1,52 @@
+# ============================================================================
+# Exemplo de consumidor NestJS.
+#
+# Reusa o node.yml com defaults proprios de Nest: lint via eslint,
+# testes unit + e2e (separados por comando).
+#
+# Copie para `.github/workflows/ci.yml` no repo da aplicacao.
+# ============================================================================
+name: CI
+
+on:
+  pull_request:
+    branches: [main, homolog]
+  push:
+    branches: [main, homolog]
+
+jobs:
+  ci:
+    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.0.0
+    secrets: inherit
+    with:
+      # ----- obrigatorios ---------------------------------------------------
+      image-name: meu-app-api
+      registry: registry.cliente.com.br
+
+      # ----- Node / Nest ----------------------------------------------------
+      node-version: '22'
+      package-manager: 'yarn'              # yarn | npm
+      lint-command: 'yarn lint'
+      typecheck-command: 'yarn tsc --noEmit'
+      # Nest costuma ter dois alvos: test (unit) e test:e2e.
+      # Encadeie com && pra rodar ambos no mesmo job.
+      test-command: 'yarn test --ci && yarn test:e2e --ci'
+
+      # ----- comportamento por branch ---------------------------------------
+      do-push: ${{ github.event_name == 'push' }}
+      block-on-failure: ${{ github.ref == 'refs/heads/main' }}
+
+      # ----- toggles de seguranca -------------------------------------------
+      # SAST: Nest e backend; tira p/react do default do node.yml.
+      semgrep-configs: 'p/owasp-top-ten p/typescript p/nodejs'
+
+      # ----- notificacao ----------------------------------------------------
+      notify-channel: slack
+      notify-on: failure
+      slack-channel: '#ci-cliente-a'
+
+      # ----- avancado -------------------------------------------------------
+      # dockerfile-target: 'production'
+      # platforms: 'linux/amd64'
+      # build-args: |
+      #   NODE_ENV=production
