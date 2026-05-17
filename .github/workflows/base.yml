@@ -1,0 +1,657 @@
+# ============================================================================
+# base.yml — pipeline reusable da Widesoftware.
+#
+# Fonte: widesoftware-dev/github-workflows (publico, cross-org sem PAT).
+# Consumidores chamam via `uses: widesoftware-dev/github-workflows/.github/
+# workflows/base.yml@vX.Y.Z` em PRs e pushes para main/homolog.
+#
+# Etapas (rodam em paralelo onde possivel):
+#   1. secrets-scan      — gitleaks no historico do repo
+#   2. sast              — Semgrep (configs parametrizaveis)
+#   3. vuln-scan-fs      — Trivy FS (CVE em arquivos de manifesto, vendor/...)
+#   4. vuln-scan-config  — Trivy Config (Dockerfile/IaC misconfig)
+#   5. build-push        — docker buildx + push condicional ao registry
+#   6. container-scan    — Trivy image na imagem buildada (gate final)
+#   7. pr-report         — comenta no PR em caso de falha (opcional)
+#   8. notify            — Slack/email no final (opcional)
+#
+# IMPORTANTE: este workflow NAO faz deploy. O deploy de todos os clientes
+# acontece via ArgoCD observando o registry. Push da imagem = sinal pro
+# ArgoCD aplicar a nova versao no cluster.
+#
+# Controle de bloqueio (block-on-failure):
+#   true  — qualquer scan falhando bloqueia build/push. Usar em `main`.
+#   false — scans rodam, falhas viram warning, build/push segue.
+#           Usar em `homolog` pra permitir entregar mesmo com debito de
+#           seguranca, enquanto o time arruma.
+#   Padrao no caller: block-on-failure: ${{ github.ref == 'refs/heads/main' }}
+#
+# Seguranca:
+#   - Toda input usada em `run:` passa por `env:` (evita workflow injection).
+#   - Secrets do registry sao opcionais (so exigidos quando `do-push: true`).
+#   - Slack/SMTP: skip silencioso se nao configurado, sem quebrar o workflow.
+# ============================================================================
+name: Base pipeline
+
+on:
+  workflow_call:
+    inputs:
+      # ----- imagem / registry -------------------------------------------------
+      image-name:
+        description: 'Nome curto da imagem (ex: meu-app). Compor o ref final como `<registry>/<image-name>:<tag>`.'
+        required: true
+        type: string
+      registry:
+        description: 'Host do registry alvo (ex: registry.cliente.com.br ou ghcr.io/cliente).'
+        required: true
+        type: string
+      image-tag:
+        description: 'Tag da imagem. Vazio = usa SHA curto (7 chars) do commit.'
+        required: false
+        type: string
+        default: ''
+      dockerfile:
+        description: 'Caminho do Dockerfile relativo ao repo do consumidor.'
+        required: false
+        type: string
+        default: 'Dockerfile'
+      dockerfile-target:
+        description: 'Stage final do Dockerfile multi-stage. Vazio = builda ate a ultima stage.'
+        required: false
+        type: string
+        default: ''
+      build-args:
+        description: 'Build args, um por linha no formato KEY=value. Repassado direto ao docker/build-push-action.'
+        required: false
+        type: string
+        default: ''
+      build-context:
+        description: 'Diretorio do build context.'
+        required: false
+        type: string
+        default: '.'
+      platforms:
+        description: 'Plataformas alvo do buildx (ex: linux/amd64,linux/arm64). Multi-arch precisa de QEMU; configurar se necessario.'
+        required: false
+        type: string
+        default: 'linux/amd64'
+
+      # ----- controle de fluxo ------------------------------------------------
+      do-push:
+        description: 'true = autentica no registry e faz push. false = builda local (para validar Dockerfile sem publicar).'
+        required: false
+        type: boolean
+        default: true
+      block-on-failure:
+        description: 'true = falha de scan bloqueia build/push. false = warning only (homolog).'
+        required: false
+        type: boolean
+        default: true
+
+      # ----- toggles de seguranca ---------------------------------------------
+      # Cada toggle pode ser desligado individualmente. Clientes legados
+      # comecam com algumas em false e vao reativando aos poucos.
+      run-secrets-scan:
+        description: 'Roda gitleaks (busca segredos vazados no historico).'
+        required: false
+        type: boolean
+        default: true
+      run-vuln-scan:
+        description: 'Roda Trivy FS + Trivy Config (CVE em manifestos + misconfig em Dockerfile/IaC).'
+        required: false
+        type: boolean
+        default: true
+      run-sast:
+        description: 'Roda Semgrep SAST (analise estatica de padroes inseguros).'
+        required: false
+        type: boolean
+        default: true
+      run-dependency-scan:
+        description: 'Roda dependency scan. Implementado nos wrappers (php.yml usa composer audit, node.yml usa yarn npm audit). Sem efeito no base.yml.'
+        required: false
+        type: boolean
+        default: true
+      run-container-scan:
+        description: 'Roda Trivy image scan na imagem buildada.'
+        required: false
+        type: boolean
+        default: true
+
+      # ----- Semgrep ----------------------------------------------------------
+      semgrep-configs:
+        description: 'Configs Semgrep separadas por espaco (ex: "p/owasp-top-ten p/php"). Sem caracteres especiais.'
+        required: false
+        type: string
+        default: 'p/owasp-top-ten'
+
+      # ----- relatorio / notificacao ------------------------------------------
+      pr-report:
+        description: 'Posta comentario consolidado de falhas no PR.'
+        required: false
+        type: boolean
+        default: true
+      notify-channel:
+        description: 'Canal de notificacao: none | slack | email | both.'
+        required: false
+        type: string
+        default: 'none'
+      notify-on:
+        description: 'Quando notificar: failure | always.'
+        required: false
+        type: string
+        default: 'failure'
+      slack-channel:
+        description: 'Nome do canal Slack (ex: #ci-cliente-a). Opcional — depende do webhook estar configurado para canal especifico ou aceitar override.'
+        required: false
+        type: string
+        default: ''
+      email-to:
+        description: 'Destinatarios de email separados por virgula.'
+        required: false
+        type: string
+        default: ''
+
+    # Secrets sao `required: false` no nivel do workflow porque alguns clientes
+    # nao usam push (do-push: false) ou nao usam Slack/email. A validacao real
+    # acontece dentro dos jobs (`if:`, ou skip silencioso).
+    secrets:
+      REGISTRY_USERNAME:
+        required: false
+      REGISTRY_PASSWORD:
+        required: false
+      SLACK_WEBHOOK_URL:
+        required: false
+      SMTP_HOST:
+        required: false
+      SMTP_PORT:
+        required: false
+      SMTP_USERNAME:
+        required: false
+      SMTP_PASSWORD:
+        required: false
+      SMTP_FROM:
+        required: false
+
+    outputs:
+      image-ref:
+        description: 'Referencia completa da imagem (registry/name:tag). Util pro caller encadear jobs adicionais.'
+        value: ${{ jobs.build-push.outputs.image-ref }}
+
+# Permissoes minimas necessarias:
+#   contents: read         — checkout
+#   packages: write        — push pra ghcr.io (caso usado)
+#   pull-requests: write   — comentar no PR (pr-report)
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+# Cancela runs anteriores na mesma ref (PR ou branch) quando vier push novo.
+concurrency:
+  group: base-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ===========================================================================
+  # 1. SECRETS SCAN — gitleaks
+  # ---------------------------------------------------------------------------
+  # Procura segredos (API keys, tokens, certificados) commitados no historico.
+  # fetch-depth: 0 garante que o gitleaks veja todo o historico, nao so o HEAD.
+  # ===========================================================================
+  secrets-scan:
+    name: Secrets scan
+    if: inputs.run-secrets-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Quando block-on-failure=false, marca o job como "success" mesmo se falhar.
+    # Assim build-push consegue rodar adiante em homolog.
+    continue-on-error: ${{ !inputs.block-on-failure }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        uses: jaxxstorm/action-install-gh-release@v1
+        with:
+          repo: gitleaks/gitleaks
+          tag: latest
+          chmod: 0755
+
+      - name: Run gitleaks
+        run: gitleaks detect --source . --redact --report-format json --report-path gitleaks-report.json --exit-code 1
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
+          retention-days: 15
+
+  # ===========================================================================
+  # 2. SAST — Semgrep
+  # ---------------------------------------------------------------------------
+  # Roda dentro do container oficial do Semgrep. As configs sao parametrizaveis
+  # pra permitir wrappers especializados (php.yml adiciona p/php, node.yml
+  # adiciona p/typescript+p/react).
+  # ===========================================================================
+  sast:
+    name: SAST (Semgrep)
+    if: inputs.run-sast
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: ${{ !inputs.block-on-failure }}
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        # Input via env evita workflow injection. Itera sobre os tokens
+        # separados por espaco e gera flags --config pra cada um.
+        env:
+          SEMGREP_CONFIGS: ${{ inputs.semgrep-configs }}
+        run: |
+          set -e
+          CONFIG_ARGS=""
+          for cfg in $SEMGREP_CONFIGS; do
+            CONFIG_ARGS="$CONFIG_ARGS --config $cfg"
+          done
+          semgrep scan $CONFIG_ARGS --severity ERROR --error --sarif --output semgrep.sarif
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-report
+          path: semgrep.sarif
+          retention-days: 15
+
+  # ===========================================================================
+  # 3. VULN SCAN FS — Trivy FS
+  # ---------------------------------------------------------------------------
+  # Escaneia manifestos (composer.lock, yarn.lock, package-lock.json) por CVE.
+  # ignore-unfixed: ignora CVEs sem patch disponivel — nao acionavel.
+  # ===========================================================================
+  vuln-scan-fs:
+    name: Vuln scan (Trivy FS)
+    if: inputs.run-vuln-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: ${{ !inputs.block-on-failure }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy FS
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          output: trivy-fs.txt
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+          ignore-unfixed: true
+          skip-dirs: node_modules,dist,.git,.yarn,vendor
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-fs-report
+          path: trivy-fs.txt
+          retention-days: 15
+
+  # ===========================================================================
+  # 4. VULN SCAN CONFIG — Trivy Config
+  # ---------------------------------------------------------------------------
+  # Verifica boas praticas em Dockerfile (USER root, latest tag, etc.) e em
+  # arquivos IaC (Terraform, k8s, etc., se houverem).
+  # ===========================================================================
+  vuln-scan-config:
+    name: Vuln scan (Trivy Config)
+    if: inputs.run-vuln-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: ${{ !inputs.block-on-failure }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy Config
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: table
+          output: trivy-config.txt
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+          ignore-unfixed: true
+          skip-dirs: node_modules,dist,.git,.yarn,vendor
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-config-report
+          path: trivy-config.txt
+          retention-days: 15
+
+  # ===========================================================================
+  # 5. BUILD & PUSH
+  # ---------------------------------------------------------------------------
+  # Depende dos scans anteriores. O `if:` decide se roda:
+  #   block-on-failure=false -> sempre roda (gates virtuais por continue-on-error)
+  #   block-on-failure=true  -> so roda se todos scans terminaram success/skipped
+  #
+  # Cache do GHA scopado por nome de imagem evita conflito entre projetos.
+  # Push so acontece se do-push=true. Em PRs de validacao, do-push pode ser
+  # false pra apenas validar que o Dockerfile builda.
+  # ===========================================================================
+  build-push:
+    name: Build & push
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs:
+      - secrets-scan
+      - sast
+      - vuln-scan-fs
+      - vuln-scan-config
+    if: |
+      always() &&
+      (
+        inputs.block-on-failure == false ||
+        (
+          (needs.secrets-scan.result == 'success' || needs.secrets-scan.result == 'skipped') &&
+          (needs.sast.result == 'success'         || needs.sast.result == 'skipped') &&
+          (needs.vuln-scan-fs.result == 'success' || needs.vuln-scan-fs.result == 'skipped') &&
+          (needs.vuln-scan-config.result == 'success' || needs.vuln-scan-config.result == 'skipped')
+        )
+      )
+    outputs:
+      image-ref: ${{ steps.meta.outputs.image-ref }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        id: meta
+        # Compoe o ref final. Se image-tag vazio, usa SHA curto.
+        env:
+          INPUT_TAG: ${{ inputs.image-tag }}
+          INPUT_REGISTRY: ${{ inputs.registry }}
+          INPUT_IMAGE_NAME: ${{ inputs.image-name }}
+        run: |
+          TAG="$INPUT_TAG"
+          if [ -z "$TAG" ]; then
+            TAG="${GITHUB_SHA::7}"
+          fi
+          IMAGE_REF="${INPUT_REGISTRY}/${INPUT_IMAGE_NAME}:${TAG}"
+          {
+            echo "tag=${TAG}"
+            echo "image-ref=${IMAGE_REF}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Image: ${IMAGE_REF}"
+
+      # driver: docker-container habilita cache GHA e multi-plataforma.
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+
+      # Login so se for fazer push.
+      - name: Registry login
+        if: inputs.do-push
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      # load: true (quando push=false) carrega a imagem no daemon local
+      # — util pra debug ou pra rodar testes contra o container localmente.
+      - name: Build (and push)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.build-context }}
+          file: ${{ inputs.dockerfile }}
+          target: ${{ inputs.dockerfile-target }}
+          platforms: ${{ inputs.platforms }}
+          push: ${{ inputs.do-push }}
+          load: ${{ !inputs.do-push }}
+          tags: ${{ steps.meta.outputs.image-ref }}
+          build-args: ${{ inputs.build-args }}
+          cache-from: type=gha,scope=${{ inputs.image-name }}
+          cache-to: type=gha,scope=${{ inputs.image-name }},mode=max
+
+  # ===========================================================================
+  # 6. CONTAINER SCAN — Trivy image
+  # ---------------------------------------------------------------------------
+  # Escaneia a imagem ja publicada. Faz login no registry pra puxar a imagem.
+  # E o gate final antes da imagem ser efetivamente promovida.
+  # ===========================================================================
+  container-scan:
+    name: Container scan
+    if: inputs.run-container-scan && needs.build-push.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build-push
+    continue-on-error: ${{ !inputs.block-on-failure }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Registry login
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Trivy image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ needs.build-push.outputs.image-ref }}
+          format: table
+          output: trivy-image.txt
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-report
+          path: trivy-image.txt
+          retention-days: 15
+
+  # ===========================================================================
+  # 7. PR REPORT
+  # ---------------------------------------------------------------------------
+  # So roda em PRs. Em failure, posta (ou atualiza) um comentario com tabela
+  # dos jobs e seus resultados. Marker HTML permite idempotencia: ao reabrir o
+  # PR ou rodar novamente, o mesmo comentario eh editado em vez de criar outro.
+  # ===========================================================================
+  pr-report:
+    name: PR report
+    runs-on: ubuntu-latest
+    needs:
+      - secrets-scan
+      - sast
+      - vuln-scan-fs
+      - vuln-scan-config
+      - build-push
+      - container-scan
+    if: |
+      always() &&
+      inputs.pr-report &&
+      github.event_name == 'pull_request' &&
+      (
+        needs.secrets-scan.result == 'failure' ||
+        needs.sast.result == 'failure' ||
+        needs.vuln-scan-fs.result == 'failure' ||
+        needs.vuln-scan-config.result == 'failure' ||
+        needs.build-push.result == 'failure' ||
+        needs.container-scan.result == 'failure'
+      )
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    steps:
+      - name: Comment failure summary on PR
+        uses: actions/github-script@v7
+        env:
+          SECRETS_RESULT: ${{ needs.secrets-scan.result }}
+          SAST_RESULT: ${{ needs.sast.result }}
+          TRIVY_FS_RESULT: ${{ needs.vuln-scan-fs.result }}
+          TRIVY_CONFIG_RESULT: ${{ needs.vuln-scan-config.result }}
+          BUILD_RESULT: ${{ needs.build-push.result }}
+          CONTAINER_RESULT: ${{ needs.container-scan.result }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const runId = context.runId;
+            const results = {
+              'Secrets scan':    process.env.SECRETS_RESULT,
+              'SAST':            process.env.SAST_RESULT,
+              'Vuln scan (FS)':  process.env.TRIVY_FS_RESULT,
+              'Vuln scan (Cfg)': process.env.TRIVY_CONFIG_RESULT,
+              'Build & push':    process.env.BUILD_RESULT,
+              'Container scan':  process.env.CONTAINER_RESULT,
+            };
+            const icon = (r) => ({
+              success: '✅', failure: '❌', cancelled: '⏹️', skipped: '⏭️',
+            }[r] || '❓');
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${runId}`;
+            const rows = Object.entries(results)
+              .map(([n, r]) => `| ${icon(r)} | **${n}** | \`${r}\` |`).join('\n');
+            const failed = Object.entries(results)
+              .filter(([, r]) => r === 'failure').map(([n]) => n);
+            const marker = '<!-- ci-failure-report -->';
+            const body = [
+              marker,
+              '## ❌ CI falhou',
+              '',
+              `Commit: \`${context.sha.substring(0, 7)}\` · [Ver run](${runUrl})`,
+              '',
+              failed.length ? `**Jobs com falha:** ${failed.map(n => `\`${n}\``).join(', ')}` : '',
+              '',
+              '| | Job | Resultado |',
+              '|---|---|---|',
+              rows,
+              '',
+              '<sub>Comentário gerado por `widesoftware-dev/github-workflows`.</sub>',
+            ].filter(Boolean).join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner, repo, issue_number: context.issue.number, per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner, repo, comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: context.issue.number, body,
+              });
+            }
+
+  # ===========================================================================
+  # 8. NOTIFY
+  # ---------------------------------------------------------------------------
+  # Roda no final independente do status (always()). Decide se notifica via:
+  #   notify-on=failure  — so se algum job acima falhou
+  #   notify-on=always   — sempre
+  #
+  # Skip silencioso quando credenciais nao configuradas:
+  #   Slack sem SLACK_WEBHOOK_URL  -> log informativo, sai sem erro.
+  #   Email sem SMTP_*             -> step pulado (if checa SMTP_HOST).
+  # ===========================================================================
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs:
+      - secrets-scan
+      - sast
+      - vuln-scan-fs
+      - vuln-scan-config
+      - build-push
+      - container-scan
+    if: |
+      always() &&
+      inputs.notify-channel != 'none' &&
+      (
+        inputs.notify-on == 'always' ||
+        contains(needs.*.result, 'failure')
+      )
+    steps:
+      - name: Compute status
+        id: status
+        run: |
+          if [ "${{ contains(needs.*.result, 'failure') }}" = "true" ]; then
+            echo "status=failure" >> "$GITHUB_OUTPUT"
+            echo "emoji=❌" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=success" >> "$GITHUB_OUTPUT"
+            echo "emoji=✅" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Notify Slack
+        if: inputs.notify-channel == 'slack' || inputs.notify-channel == 'both'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          STATUS: ${{ steps.status.outputs.status }}
+          EMOJI: ${{ steps.status.outputs.emoji }}
+          SLACK_CHANNEL: ${{ inputs.slack-channel }}
+        # Skip silencioso: se webhook nao foi configurado, registra warning
+        # mas nao quebra o run. Util quando ativa Slack gradualmente.
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "::warning::SLACK_WEBHOOK_URL nao configurado — pulando notificacao Slack."
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          TEXT="${EMOJI} *${GITHUB_REPOSITORY}* — ${STATUS} em \`${GITHUB_REF_NAME}\` por *${GITHUB_ACTOR}* (<${RUN_URL}|ver run>)"
+          PAYLOAD=$(jq -n \
+            --arg ch    "$SLACK_CHANNEL" \
+            --arg text  "$TEXT" \
+            '{channel: ($ch | select(. != "")), text: $text} | with_entries(select(.value != null))')
+          curl -sS -X POST -H 'Content-Type: application/json' --data "$PAYLOAD" "$SLACK_WEBHOOK_URL"
+
+      # Check de SMTP via env (o `secrets` context nao funciona consistentemente
+      # em `if:` de steps). Output `enabled` controla os steps seguintes.
+      - name: Check SMTP config
+        id: smtp-check
+        if: inputs.notify-channel == 'email' || inputs.notify-channel == 'both'
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+        run: |
+          if [ -n "$SMTP_HOST" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::SMTP_HOST nao configurado — pulando notificacao por email."
+          fi
+
+      - name: Notify Email
+        if: steps.smtp-check.outputs.enabled == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_HOST }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          from: ${{ secrets.SMTP_FROM }}
+          to: ${{ inputs.email-to }}
+          subject: "[${{ steps.status.outputs.status }}] ${{ github.repository }} @ ${{ github.ref_name }}"
+          body: |
+            Status: ${{ steps.status.outputs.status }}
+            Repo: ${{ github.repository }}
+            Branch/Ref: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Autor: ${{ github.actor }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+

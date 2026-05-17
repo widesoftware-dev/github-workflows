@@ -1,0 +1,190 @@
+# ============================================================================
+# node.yml — wrapper Node.js/TypeScript.
+#
+# Adiciona testes e dependency scan especificos de Node antes de chamar
+# base.yml. Suporta yarn e npm (auto-detecta via lockfile).
+#
+# Fluxo:
+#   1. Job `test`: setup Node + corepack (yarn) + install + lint/typecheck/
+#      test (opcionais) + dependency scan (yarn/npm audit).
+#   2. Job `pipeline`: chama base.yml. needs: test.
+# ============================================================================
+name: Node pipeline
+
+on:
+  workflow_call:
+    inputs:
+      # ----- inputs especificos de Node --------------------------------------
+      node-version:
+        description: 'Versao do Node (default 22).'
+        required: false
+        type: string
+        default: '22'
+      package-manager:
+        description: 'Package manager: yarn | npm.'
+        required: false
+        type: string
+        default: 'yarn'
+      install-command:
+        description: 'Comando de install. Vazio = decide pelo package-manager (yarn install --immutable / npm ci).'
+        required: false
+        type: string
+        default: ''
+      test-command:
+        description: 'Comando de testes. Vazio = pula. Ex: yarn test, npm test.'
+        required: false
+        type: string
+        default: ''
+      lint-command:
+        description: 'Comando de lint. Vazio = pula.'
+        required: false
+        type: string
+        default: ''
+      typecheck-command:
+        description: 'Comando de typecheck. Vazio = pula.'
+        required: false
+        type: string
+        default: ''
+      pre-install-command:
+        description: 'Comando opcional antes do install (ex: corepack enable).'
+        required: false
+        type: string
+        default: 'corepack enable'
+
+      # ----- inputs repassados pro base.yml ----------------------------------
+      image-name:        { required: true,  type: string }
+      registry:          { required: true,  type: string }
+      image-tag:         { required: false, type: string, default: '' }
+      dockerfile:        { required: false, type: string, default: 'Dockerfile' }
+      dockerfile-target: { required: false, type: string, default: '' }
+      build-args:        { required: false, type: string, default: '' }
+      build-context:     { required: false, type: string, default: '.' }
+      platforms:         { required: false, type: string, default: 'linux/amd64' }
+      do-push:           { required: false, type: boolean, default: true }
+      block-on-failure:  { required: false, type: boolean, default: true }
+      run-secrets-scan:    { required: false, type: boolean, default: true }
+      run-vuln-scan:       { required: false, type: boolean, default: true }
+      run-sast:            { required: false, type: boolean, default: true }
+      run-dependency-scan: { required: false, type: boolean, default: true }
+      run-container-scan:  { required: false, type: boolean, default: true }
+      semgrep-configs:   { required: false, type: string, default: 'p/owasp-top-ten p/typescript p/react' }
+      pr-report:         { required: false, type: boolean, default: true }
+      notify-channel:    { required: false, type: string, default: 'none' }
+      notify-on:         { required: false, type: string, default: 'failure' }
+      slack-channel:     { required: false, type: string, default: '' }
+      email-to:          { required: false, type: string, default: '' }
+
+    secrets:
+      REGISTRY_USERNAME:    { required: false }
+      REGISTRY_PASSWORD:    { required: false }
+      SLACK_WEBHOOK_URL:    { required: false }
+      SMTP_HOST:            { required: false }
+      SMTP_PORT:            { required: false }
+      SMTP_USERNAME:        { required: false }
+      SMTP_PASSWORD:        { required: false }
+      SMTP_FROM:            { required: false }
+
+permissions:
+  contents: read
+
+jobs:
+  # ===========================================================================
+  # Testes Node
+  # ---------------------------------------------------------------------------
+  # Corepack ativado ANTES do setup-node — necessario quando packageManager
+  # do package.json esta em yarn@4.x (ou pnpm). Sem isso, setup-node usa o
+  # yarn 1.22 global do runner pra resolver cache, e quebra.
+  # ===========================================================================
+  test:
+    name: Test (Node ${{ inputs.node-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pre-install hook
+        if: inputs.pre-install-command != ''
+        env:
+          CMD: ${{ inputs.pre-install-command }}
+        run: bash -c "$CMD"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ inputs.package-manager }}
+
+      # Install: usa o comando custom se passado, senao default por gerenciador.
+      - name: Install dependencies
+        env:
+          PM: ${{ inputs.package-manager }}
+          CUSTOM: ${{ inputs.install-command }}
+        run: |
+          if [ -n "$CUSTOM" ]; then
+            bash -c "$CUSTOM"
+          elif [ "$PM" = "yarn" ]; then
+            yarn install --immutable
+          else
+            npm ci
+          fi
+
+      # Dependency scan: yarn npm audit ou npm audit. Bloqueia HIGH+CRITICAL.
+      - name: Dependency audit
+        if: inputs.run-dependency-scan
+        env:
+          PM: ${{ inputs.package-manager }}
+        run: |
+          set -e
+          if [ "$PM" = "yarn" ]; then
+            yarn npm audit --recursive --all --severity high
+          else
+            npm audit --audit-level=high
+          fi
+
+      - name: Lint
+        if: inputs.lint-command != ''
+        env:
+          CMD: ${{ inputs.lint-command }}
+        run: bash -c "$CMD"
+
+      - name: Typecheck
+        if: inputs.typecheck-command != ''
+        env:
+          CMD: ${{ inputs.typecheck-command }}
+        run: bash -c "$CMD"
+
+      - name: Run tests
+        if: inputs.test-command != ''
+        env:
+          CMD: ${{ inputs.test-command }}
+        run: bash -c "$CMD"
+
+  # ===========================================================================
+  # Pipeline (chama base.yml)
+  # ===========================================================================
+  pipeline:
+    name: Pipeline
+    needs: test
+    uses: ./.github/workflows/base.yml
+    secrets: inherit
+    with:
+      image-name:          ${{ inputs.image-name }}
+      registry:            ${{ inputs.registry }}
+      image-tag:           ${{ inputs.image-tag }}
+      dockerfile:          ${{ inputs.dockerfile }}
+      dockerfile-target:   ${{ inputs.dockerfile-target }}
+      build-args:          ${{ inputs.build-args }}
+      build-context:       ${{ inputs.build-context }}
+      platforms:           ${{ inputs.platforms }}
+      do-push:             ${{ inputs.do-push }}
+      block-on-failure:    ${{ inputs.block-on-failure }}
+      run-secrets-scan:    ${{ inputs.run-secrets-scan }}
+      run-vuln-scan:       ${{ inputs.run-vuln-scan }}
+      run-sast:            ${{ inputs.run-sast }}
+      run-dependency-scan: ${{ inputs.run-dependency-scan }}
+      run-container-scan:  ${{ inputs.run-container-scan }}
+      semgrep-configs:     ${{ inputs.semgrep-configs }}
+      pr-report:           ${{ inputs.pr-report }}
+      notify-channel:      ${{ inputs.notify-channel }}
+      notify-on:           ${{ inputs.notify-on }}
+      slack-channel:       ${{ inputs.slack-channel }}
+      email-to:            ${{ inputs.email-to }}

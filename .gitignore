@@ -1,0 +1,16 @@
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Local env
+.env
+.env.local
+
+# Logs
+*.log
+
+# Local actionlint cache
+actionlint

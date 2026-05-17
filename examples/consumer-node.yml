@@ -1,0 +1,58 @@
+# ============================================================================
+# Exemplo de consumidor Node.js/TypeScript.
+#
+# Copie este arquivo para `.github/workflows/ci.yml` no repo da aplicacao
+# e ajuste os inputs. A linha `uses:` precisa ser pinada em tag semver.
+#
+# Comportamento por branch:
+#   - main:    CI falha bloqueia deploy (block-on-failure = true).
+#   - homolog: CI falha NAO bloqueia (block-on-failure = false).
+#   - PR:      builda sem fazer push (do-push = false).
+# ============================================================================
+name: CI
+
+on:
+  pull_request:
+    branches: [main, homolog]
+  push:
+    branches: [main, homolog]
+
+jobs:
+  ci:
+    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.0.0
+    secrets: inherit
+    with:
+      # ----- obrigatorios ---------------------------------------------------
+      image-name: meu-app-frontend
+      registry: registry.cliente.com.br
+
+      # ----- Node -----------------------------------------------------------
+      node-version: '22'
+      package-manager: 'yarn'         # yarn | npm
+      lint-command: 'yarn lint'
+      typecheck-command: 'yarn tsc -b'
+      test-command: 'yarn test'
+
+      # ----- comportamento por branch ---------------------------------------
+      do-push: ${{ github.event_name == 'push' }}
+      block-on-failure: ${{ github.ref == 'refs/heads/main' }}
+
+      # ----- toggles de seguranca (default: tudo true) ----------------------
+      # run-secrets-scan: true
+      # run-vuln-scan: true
+      # run-sast: true
+      # run-dependency-scan: true
+      # run-container-scan: true
+
+      # ----- notificacao ----------------------------------------------------
+      notify-channel: slack
+      notify-on: failure
+      slack-channel: '#ci-cliente-a'
+
+      # ----- avancado -------------------------------------------------------
+      # image-tag: ''
+      # dockerfile: 'Dockerfile'
+      # dockerfile-target: 'production'
+      # platforms: 'linux/amd64'
+      # build-args: |
+      #   VITE_API_URL=https://api.cliente.com

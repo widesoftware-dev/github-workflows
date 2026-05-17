@@ -1,0 +1,66 @@
+# ============================================================================
+# Exemplo de consumidor PHP/Laravel.
+#
+# Copie este arquivo para `.github/workflows/ci.yml` no repo da aplicacao
+# e ajuste os inputs. A linha `uses:` precisa ser pinada em tag semver.
+#
+# Comportamento por branch:
+#   - main:    CI falha bloqueia deploy (block-on-failure = true).
+#   - homolog: CI falha NAO bloqueia (block-on-failure = false).
+#   - PR:      builda sem fazer push (do-push = false).
+# ============================================================================
+name: CI
+
+on:
+  pull_request:
+    branches: [main, homolog]
+  push:
+    branches: [main, homolog]
+
+jobs:
+  ci:
+    # Pinar em tag semver — nunca @main em producao.
+    # Bumps automaticos: configure Renovate ou Dependabot pra este `uses:`.
+    uses: widesoftware-dev/github-workflows/.github/workflows/php.yml@v1.0.0
+    secrets: inherit
+    with:
+      # ----- obrigatorios ---------------------------------------------------
+      image-name: meu-app
+      registry: registry.cliente.com.br
+
+      # ----- PHP ------------------------------------------------------------
+      php-version: '8.3'
+      test-command: 'vendor/bin/pest'
+      # run-static-analysis: true
+      # run-code-style: true
+
+      # ----- comportamento por branch ---------------------------------------
+      # Push so em push pra branch (nao em PR). Builda em PR pra validar Dockerfile.
+      do-push: ${{ github.event_name == 'push' }}
+      # main bloqueia, homolog nao bloqueia.
+      block-on-failure: ${{ github.ref == 'refs/heads/main' }}
+
+      # ----- toggles de seguranca (default: tudo true) ----------------------
+      # Cliente novo: deixar tudo true.
+      # Cliente legado: setar false nos scans que ainda nao passam, ir
+      # reativando aos poucos.
+      # run-secrets-scan: true
+      # run-vuln-scan: true
+      # run-sast: false             # legado, ainda nao passa Semgrep
+      # run-dependency-scan: true
+      # run-container-scan: true
+
+      # ----- notificacao ----------------------------------------------------
+      notify-channel: slack           # none | slack | email | both
+      notify-on: failure              # failure | always
+      slack-channel: '#ci-cliente-a'  # opcional, depende do webhook
+      # email-to: 'dev@cliente.com,ops@cliente.com'
+
+      # ----- avancado -------------------------------------------------------
+      # image-tag: ''                       # vazio = SHA curto
+      # dockerfile: 'Dockerfile'
+      # dockerfile-target: 'production'     # vazio = ultima stage
+      # platforms: 'linux/amd64,linux/arm64'
+      # build-args: |
+      #   APP_ENV=production
+      #   APP_DEBUG=false

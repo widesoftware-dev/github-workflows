@@ -1,0 +1,67 @@
+# ============================================================================
+# self-test.yml — CI deste proprio repositorio.
+#
+# Roda em PRs e push para main. Valida que os reusable workflows aqui dentro
+# nao tem syntax error e que os examples seguem a regra de pinagem.
+#
+# Nao faz build/push porque este repo nao tem aplicacao — so workflows.
+# ============================================================================
+name: Self-test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # ===========================================================================
+  # actionlint — sintaxe, expressoes invalidas, action versions desatualizadas.
+  # ===========================================================================
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install actionlint
+        run: bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+
+      - name: Run actionlint
+        run: ./actionlint -color
+
+  # ===========================================================================
+  # Valida que arquivos em examples/ sempre apontem para este repo via tag
+  # semver (@v1.2.3 ou @v1). Nunca @main, @master ou SHA.
+  # ===========================================================================
+  validate-examples-pin:
+    name: Validate examples pin
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check pin in examples
+        run: |
+          set -e
+          FAIL=0
+          for f in examples/*.yml examples/*.yaml; do
+            [ -e "$f" ] || continue
+            BAD=$(grep -nE 'widesoftware-dev/github-workflows/[^@[:space:]]+@(main|master|[0-9a-f]{40})' "$f" || true)
+            if [ -n "$BAD" ]; then
+              echo "::error file=$f::Referencia nao pinada em @vX.Y.Z:"
+              echo "$BAD"
+              FAIL=1
+            fi
+            MISSING=$(grep -nE 'widesoftware-dev/github-workflows/' "$f" | grep -vE '@v[0-9]+(\.[0-9]+){0,2}' || true)
+            if [ -n "$MISSING" ]; then
+              echo "::error file=$f::Referencia sem tag @v* encontrada:"
+              echo "$MISSING"
+              FAIL=1
+            fi
+          done
+          exit $FAIL

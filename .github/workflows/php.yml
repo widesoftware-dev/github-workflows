@@ -1,0 +1,180 @@
+# ============================================================================
+# php.yml — wrapper PHP/Laravel.
+#
+# Adiciona uma camada de testes e dependency scan especificos de PHP antes de
+# chamar o base.yml. Stack alvo: Laravel 12 / PHP 8.3+, mas funciona com
+# qualquer projeto composer.
+#
+# Fluxo:
+#   1. Job `test`: setup PHP + composer install + phpstan/pint opcional +
+#      composer audit (dependency scan) + suite de testes.
+#   2. Job `pipeline`: chama base.yml. needs: test. Se test falhar, base nao
+#      roda. (Ressalva: em homolog, block-on-failure=false aplica APENAS aos
+#      scans dentro do base; o test do wrapper continua sendo bloqueante.
+#      Se quiser test nao-bloqueante em homolog, basta pular este wrapper e
+#      chamar base.yml diretamente.)
+# ============================================================================
+name: PHP pipeline
+
+on:
+  workflow_call:
+    inputs:
+      # ----- inputs especificos de PHP ---------------------------------------
+      php-version:
+        description: 'Versao do PHP (default 8.3).'
+        required: false
+        type: string
+        default: '8.3'
+      php-extensions:
+        description: 'Extensoes PHP a instalar (separadas por virgula).'
+        required: false
+        type: string
+        default: 'mbstring, xml, ctype, iconv, intl, pdo_mysql, bcmath, redis'
+      composer-args:
+        description: 'Args extras pro composer install.'
+        required: false
+        type: string
+        default: '--no-interaction --prefer-dist --no-progress --optimize-autoloader'
+      test-command:
+        description: 'Comando de testes (ex: vendor/bin/pest, vendor/bin/phpunit, php artisan test).'
+        required: false
+        type: string
+        default: 'vendor/bin/pest'
+      run-static-analysis:
+        description: 'Roda phpstan/larastan (vendor/bin/phpstan analyse).'
+        required: false
+        type: boolean
+        default: false
+      run-code-style:
+        description: 'Roda Pint (vendor/bin/pint --test).'
+        required: false
+        type: boolean
+        default: false
+
+      # ----- inputs repassados pro base.yml ----------------------------------
+      image-name:        { required: true,  type: string }
+      registry:          { required: true,  type: string }
+      image-tag:         { required: false, type: string, default: '' }
+      dockerfile:        { required: false, type: string, default: 'Dockerfile' }
+      dockerfile-target: { required: false, type: string, default: '' }
+      build-args:        { required: false, type: string, default: '' }
+      build-context:     { required: false, type: string, default: '.' }
+      platforms:         { required: false, type: string, default: 'linux/amd64' }
+      do-push:           { required: false, type: boolean, default: true }
+      block-on-failure:  { required: false, type: boolean, default: true }
+      run-secrets-scan:    { required: false, type: boolean, default: true }
+      run-vuln-scan:       { required: false, type: boolean, default: true }
+      run-sast:            { required: false, type: boolean, default: true }
+      run-dependency-scan: { required: false, type: boolean, default: true }
+      run-container-scan:  { required: false, type: boolean, default: true }
+      semgrep-configs:   { required: false, type: string, default: 'p/owasp-top-ten p/php' }
+      pr-report:         { required: false, type: boolean, default: true }
+      notify-channel:    { required: false, type: string, default: 'none' }
+      notify-on:         { required: false, type: string, default: 'failure' }
+      slack-channel:     { required: false, type: string, default: '' }
+      email-to:          { required: false, type: string, default: '' }
+
+    secrets:
+      REGISTRY_USERNAME:    { required: false }
+      REGISTRY_PASSWORD:    { required: false }
+      SLACK_WEBHOOK_URL:    { required: false }
+      SMTP_HOST:            { required: false }
+      SMTP_PORT:            { required: false }
+      SMTP_USERNAME:        { required: false }
+      SMTP_PASSWORD:        { required: false }
+      SMTP_FROM:            { required: false }
+
+permissions:
+  contents: read
+
+jobs:
+  # ===========================================================================
+  # Testes PHP
+  # ---------------------------------------------------------------------------
+  # Setup PHP via shivammathur/setup-php (action mais usada do ecossistema).
+  # Cache do composer baseado em composer.lock. Testes rodam por ultimo.
+  # ===========================================================================
+  test:
+    name: Test (PHP ${{ inputs.php-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php-version }}
+          extensions: ${{ inputs.php-extensions }}
+          coverage: none
+          tools: composer:v2
+
+      # Cache das deps do composer pra acelerar runs subsequentes.
+      - name: Composer cache dir
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-php${{ inputs.php-version }}-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            composer-${{ runner.os }}-php${{ inputs.php-version }}-
+
+      - name: Install dependencies
+        env:
+          ARGS: ${{ inputs.composer-args }}
+        run: composer install $ARGS
+
+      # Dependency scan: composer audit. Bloqueia em vulnerabilidades.
+      # Pulado se run-dependency-scan=false (cliente legado).
+      - name: Composer audit
+        if: inputs.run-dependency-scan
+        run: composer audit --no-dev --format=plain
+
+      - name: Code style (Pint)
+        if: inputs.run-code-style
+        run: vendor/bin/pint --test
+
+      - name: Static analysis (phpstan)
+        if: inputs.run-static-analysis
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=2G
+
+      - name: Run tests
+        env:
+          CMD: ${{ inputs.test-command }}
+        run: $CMD
+
+  # ===========================================================================
+  # Pipeline (chama base.yml)
+  # ---------------------------------------------------------------------------
+  # needs: test => se test falhar, base.yml nao roda.
+  # secrets: inherit repassa todos os secrets do caller pro base.
+  # ===========================================================================
+  pipeline:
+    name: Pipeline
+    needs: test
+    uses: ./.github/workflows/base.yml
+    secrets: inherit
+    with:
+      image-name:          ${{ inputs.image-name }}
+      registry:            ${{ inputs.registry }}
+      image-tag:           ${{ inputs.image-tag }}
+      dockerfile:          ${{ inputs.dockerfile }}
+      dockerfile-target:   ${{ inputs.dockerfile-target }}
+      build-args:          ${{ inputs.build-args }}
+      build-context:       ${{ inputs.build-context }}
+      platforms:           ${{ inputs.platforms }}
+      do-push:             ${{ inputs.do-push }}
+      block-on-failure:    ${{ inputs.block-on-failure }}
+      run-secrets-scan:    ${{ inputs.run-secrets-scan }}
+      run-vuln-scan:       ${{ inputs.run-vuln-scan }}
+      run-sast:            ${{ inputs.run-sast }}
+      run-dependency-scan: ${{ inputs.run-dependency-scan }}
+      run-container-scan:  ${{ inputs.run-container-scan }}
+      semgrep-configs:     ${{ inputs.semgrep-configs }}
+      pr-report:           ${{ inputs.pr-report }}
+      notify-channel:      ${{ inputs.notify-channel }}
+      notify-on:           ${{ inputs.notify-on }}
+      slack-channel:       ${{ inputs.slack-channel }}
+      email-to:            ${{ inputs.email-to }}
