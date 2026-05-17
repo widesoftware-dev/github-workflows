@@ -20,7 +20,7 @@ O pipeline cobre:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  widesoftware-dev/github-workflows  (este repo, público)            │
+│  widesoftware-dev/github-workflows  (este repo, privado)            │
 │                                                                     │
 │    .github/workflows/                                               │
 │      base.yml       scans + build + push                            │
@@ -48,11 +48,19 @@ O pipeline cobre:
 
 Este repositório **não faz deploy**. Para o ArgoCD, o registry é a fonte da verdade.
 
-## 3. Por que este repo é público
+## 3. Visibilidade e acesso cross-org
 
-Os repos consumidores estão em organizações diferentes da Widesoftware. Pra que um workflow privado de uma org seja usado em outra, o GitHub exige autenticação cross-org via PAT ou GitHub App — tokens que expiram e dão dor de manutenção.
+Este repositório é **privado** e vive na organização `widesoftware-dev`.
 
-Tornando este repo **público** o consumo é livre, sem token. Não há risco: os workflows não contêm segredos. Todos os secrets reais (registry, Slack, SMTP) ficam armazenados no repo consumidor.
+Implicações:
+
+- **Repos de aplicação dentro da org `widesoftware-dev`**: consumo livre via `uses:`, sem token.
+- **Repos de aplicação em outras orgs**: o GitHub exige autenticação cross-org. Opções:
+  1. **Mover o repo cliente** pra org `widesoftware-dev` (recomendado quando possível — consumo sem token).
+  2. **Configurar acesso explícito** em `Settings → Actions → General → Access` permitindo o repo consumidor (só funciona dentro do mesmo Enterprise GitHub).
+  3. **GitHub App ou PAT** com escopo `repo` salvo como secret no repo consumidor, usado em `actions/checkout` antes do `uses:`.
+
+Workflows não contêm segredos em si — todos os secrets reais (registry, Slack, SMTP) ficam armazenados em cada repo consumidor.
 
 ## 4. Estrutura do repositório
 
