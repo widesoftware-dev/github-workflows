@@ -207,7 +207,7 @@ jobs:
     # Assim build-push consegue rodar adiante em homolog.
     continue-on-error: ${{ !inputs.block-on-failure }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -245,7 +245,7 @@ jobs:
     container:
       image: semgrep/semgrep
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Run Semgrep
         # Input via env evita workflow injection. Itera sobre os tokens
@@ -282,7 +282,7 @@ jobs:
     timeout-minutes: 10
     continue-on-error: ${{ !inputs.block-on-failure }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Trivy FS
         uses: aquasecurity/trivy-action@v0.36.0
@@ -317,7 +317,7 @@ jobs:
     timeout-minutes: 5
     continue-on-error: ${{ !inputs.block-on-failure }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Trivy Config
         uses: aquasecurity/trivy-action@v0.36.0
@@ -373,7 +373,7 @@ jobs:
     outputs:
       image-ref: ${{ steps.meta.outputs.image-ref }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Resolve image tag
         id: meta
@@ -439,7 +439,7 @@ jobs:
     needs: build-push
     continue-on-error: ${{ !inputs.block-on-failure }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Registry login
         uses: docker/login-action@v3
