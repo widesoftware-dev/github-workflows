@@ -173,6 +173,12 @@ Não há wrapper dedicado para Next.js, NestJS, Vue, etc. — eles rodam em cima
 
 ## 6. Como adotar em um repo cliente
 
+### Caminho rápido (Claude Code)
+
+Existe um prompt pronto em [`docs/onboard-prompt.md`](docs/onboard-prompt.md). Abra o Claude Code **dentro do repositório do cliente**, copie o bloco indicado no arquivo, preencha as respostas (linguagem, registry, notificações, etc.) e cole. O Claude valida, gera o `.github/workflows/ci.yml` baseado nos `examples/` desta versão e devolve checklist de secrets a configurar.
+
+### Caminho manual
+
 1. **Copiar template**. Pegue `examples/consumer-php.yml` ou `examples/consumer-node.yml` deste repo e salve como `.github/workflows/ci.yml` no repo da aplicação.
 
 2. **Configurar secrets** no repo (Settings → Secrets and variables → Actions). Tabela por cenário:
