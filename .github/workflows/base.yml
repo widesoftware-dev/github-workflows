@@ -502,7 +502,7 @@ jobs:
       actions: read
     steps:
       - name: Comment failure summary on PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           SECRETS_RESULT: ${{ needs.secrets-scan.result }}
           SAST_RESULT: ${{ needs.sast.result }}
