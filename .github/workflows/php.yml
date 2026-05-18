@@ -73,6 +73,10 @@ on:
       notify-on:         { required: false, type: string, default: 'failure' }
       slack-channel:     { required: false, type: string, default: '' }
       email-to:          { required: false, type: string, default: '' }
+      auth-method:                { required: false, type: string, default: 'docker-login' }
+      gcp-workload-identity-provider: { required: false, type: string, default: '' }
+      gcp-service-account:        { required: false, type: string, default: '' }
+      cargo-audit-paths:          { required: false, type: string, default: '' }
 
     secrets:
       REGISTRY_USERNAME:    { required: false }
@@ -159,6 +163,11 @@ jobs:
     needs: test
     uses: ./.github/workflows/base.yml
     secrets: inherit
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+      id-token: write
     with:
       image-name:          ${{ inputs.image-name }}
       registry:            ${{ inputs.registry }}
@@ -181,3 +190,7 @@ jobs:
       notify-on:           ${{ inputs.notify-on }}
       slack-channel:       ${{ inputs.slack-channel }}
       email-to:            ${{ inputs.email-to }}
+      auth-method:                    ${{ inputs.auth-method }}
+      gcp-workload-identity-provider: ${{ inputs.gcp-workload-identity-provider }}
+      gcp-service-account:            ${{ inputs.gcp-service-account }}
+      cargo-audit-paths:              ${{ inputs.cargo-audit-paths }}

@@ -16,7 +16,7 @@ on:
 
 jobs:
   ci:
-    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.0.0
+    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.2.0
     secrets: inherit
     with:
       # ----- obrigatorios ---------------------------------------------------

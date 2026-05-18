@@ -111,6 +111,10 @@ Núcleo do pipeline. Pode ser chamado direto (sem testes de linguagem) ou via os
 | `notify-on` | string | `failure` | `failure` \| `always` |
 | `slack-channel` | string | `''` | Nome do canal (opcional) |
 | `email-to` | string | `''` | Destinatários separados por vírgula |
+| `auth-method` | string | `docker-login` | `docker-login` (user/pass) ou `gcp-wif` (OIDC pra GCP Artifact Registry) |
+| `gcp-workload-identity-provider` | string | `''` | WIF provider full path. Só `gcp-wif` |
+| `gcp-service-account` | string | `''` | Email da SA GCP. Só `gcp-wif` |
+| `cargo-audit-paths` | string | `''` | Diretórios com `Cargo.lock` separados por vírgula (ex: `blockchain`). Roda `cargo audit` em cada. Pula se vazio |
 
 Secrets necessários (definidos no repo consumidor):
 
@@ -142,9 +146,10 @@ Wrapper Node/TypeScript. Aceita todos os inputs do `base.yml` mais:
 | Input | Tipo | Default | Descrição |
 |---|---|---|---|
 | `node-version` | string | `22` | Versão do Node |
-| `package-manager` | string | `yarn` | `yarn` ou `npm` |
-| `install-command` | string | `''` | Vazio = `yarn install --immutable` ou `npm ci` |
-| `pre-install-command` | string | `corepack enable` | Roda antes do setup-node |
+| `package-manager` | string | `yarn` | `yarn`, `npm` ou `pnpm` |
+| `pnpm-version` | string | `9` | Versão do pnpm (só usado se `package-manager=pnpm`) |
+| `install-command` | string | `''` | Vazio = `yarn install --immutable`, `npm ci` ou `pnpm install --frozen-lockfile` |
+| `pre-install-command` | string | `''` | Roda antes do setup-node (ex: `corepack enable` pra yarn 4). pnpm já é resolvido pelo `pnpm/action-setup` |
 | `lint-command` | string | `''` | Vazio = pula |
 | `typecheck-command` | string | `''` | Vazio = pula |
 | `test-command` | string | `''` | Vazio = pula |

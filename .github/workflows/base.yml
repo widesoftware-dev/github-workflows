@@ -151,6 +151,33 @@ on:
         type: string
         default: ''
 
+      # ----- autenticacao no registry -----------------------------------------
+      # docker-login (padrao): usuario/senha em secrets REGISTRY_USERNAME/PASSWORD.
+      # gcp-wif: OIDC via Workload Identity Federation. Caller precisa permitir
+      # `id-token: write` e setar gcp-workload-identity-provider + gcp-service-account.
+      auth-method:
+        description: 'Metodo de auth no registry: docker-login | gcp-wif.'
+        required: false
+        type: string
+        default: 'docker-login'
+      gcp-workload-identity-provider:
+        description: 'WIF provider full path (projects/.../providers/...). So usado se auth-method=gcp-wif.'
+        required: false
+        type: string
+        default: ''
+      gcp-service-account:
+        description: 'Email da service account GCP. So usado se auth-method=gcp-wif.'
+        required: false
+        type: string
+        default: ''
+
+      # ----- dependency scan extra (Rust/CosmWasm) ---------------------------
+      cargo-audit-paths:
+        description: 'Diretorios com Cargo.lock pra rodar cargo audit, separados por virgula. Vazio = pula. Util pra monorepos Node+Rust (ex: blockchain).'
+        required: false
+        type: string
+        default: ''
+
     # Secrets sao `required: false` no nivel do workflow porque alguns clientes
     # nao usam push (do-push: false) ou nao usam Slack/email. A validacao real
     # acontece dentro dos jobs (`if:`, ou skip silencioso).
@@ -181,10 +208,12 @@ on:
 #   contents: read         — checkout
 #   packages: write        — push pra ghcr.io (caso usado)
 #   pull-requests: write   — comentar no PR (pr-report)
+#   id-token: write        — OIDC pra Workload Identity Federation (auth-method=gcp-wif)
 permissions:
   contents: read
   packages: write
   pull-requests: write
+  id-token: write
 
 # Cancela runs anteriores na mesma ref (PR ou branch) quando vier push novo.
 concurrency:
@@ -340,6 +369,47 @@ jobs:
           retention-days: 15
 
   # ===========================================================================
+  # 4b. DEPENDENCY SCAN RUST — cargo audit
+  # ---------------------------------------------------------------------------
+  # Pulado quando cargo-audit-paths esta vazio (default). Util pra monorepos
+  # Node+Rust (ex: NestJS app com diretorio blockchain/CosmWasm), onde o
+  # dependency scan principal so cobre o Node side.
+  # ===========================================================================
+  dependency-scan-rust:
+    name: Dependency scan (cargo audit)
+    if: inputs.run-dependency-scan && inputs.cargo-audit-paths != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: ${{ !inputs.block-on-failure }}
+    steps:
+      - uses: actions/checkout@v6
+
+      # Cache do advisory-db do RustSec, invalidado por hash dos Cargo.lock
+      # informados. Reduz tempo de cold run de ~30s pra <5s.
+      - name: Cache cargo advisory db
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/advisory-db
+          key: cargo-advisory-db-v1
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        env:
+          PATHS: ${{ inputs.cargo-audit-paths }}
+        run: |
+          set -e
+          IFS=',' read -ra DIRS <<< "$PATHS"
+          for dir in "${DIRS[@]}"; do
+            dir=$(echo "$dir" | xargs)  # trim
+            [ -z "$dir" ] && continue
+            echo "::group::cargo audit em $dir"
+            (cd "$dir" && cargo audit)
+            echo "::endgroup::"
+          done
+
+  # ===========================================================================
   # 5. BUILD & PUSH
   # ---------------------------------------------------------------------------
   # Depende dos scans anteriores. O `if:` decide se roda:
@@ -359,6 +429,7 @@ jobs:
       - sast
       - vuln-scan-fs
       - vuln-scan-config
+      - dependency-scan-rust
     if: |
       always() &&
       (
@@ -367,7 +438,8 @@ jobs:
           (needs.secrets-scan.result == 'success' || needs.secrets-scan.result == 'skipped') &&
           (needs.sast.result == 'success'         || needs.sast.result == 'skipped') &&
           (needs.vuln-scan-fs.result == 'success' || needs.vuln-scan-fs.result == 'skipped') &&
-          (needs.vuln-scan-config.result == 'success' || needs.vuln-scan-config.result == 'skipped')
+          (needs.vuln-scan-config.result == 'success' || needs.vuln-scan-config.result == 'skipped') &&
+          (needs.dependency-scan-rust.result == 'success' || needs.dependency-scan-rust.result == 'skipped')
         )
       )
     outputs:
@@ -399,9 +471,28 @@ jobs:
         with:
           driver: docker-container
 
-      # Login so se for fazer push.
-      - name: Registry login
-        if: inputs.do-push
+      # Auth no registry. Dois modos:
+      #   docker-login (padrao) — user/password via secrets.
+      #   gcp-wif               — OIDC -> access token GCP -> docker login.
+      - name: Auth GCP (WIF)
+        id: gcp-auth
+        if: inputs.do-push && inputs.auth-method == 'gcp-wif'
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: access_token
+          workload_identity_provider: ${{ inputs.gcp-workload-identity-provider }}
+          service_account: ${{ inputs.gcp-service-account }}
+
+      - name: Registry login (GCP)
+        if: inputs.do-push && inputs.auth-method == 'gcp-wif'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: oauth2accesstoken
+          password: ${{ steps.gcp-auth.outputs.access_token }}
+
+      - name: Registry login (user/password)
+        if: inputs.do-push && inputs.auth-method == 'docker-login'
         uses: docker/login-action@v3
         with:
           registry: ${{ inputs.registry }}
@@ -441,7 +532,25 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Registry login
+      - name: Auth GCP (WIF)
+        id: gcp-auth
+        if: inputs.auth-method == 'gcp-wif'
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: access_token
+          workload_identity_provider: ${{ inputs.gcp-workload-identity-provider }}
+          service_account: ${{ inputs.gcp-service-account }}
+
+      - name: Registry login (GCP)
+        if: inputs.auth-method == 'gcp-wif'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: oauth2accesstoken
+          password: ${{ steps.gcp-auth.outputs.access_token }}
+
+      - name: Registry login (user/password)
+        if: inputs.auth-method == 'docker-login'
         uses: docker/login-action@v3
         with:
           registry: ${{ inputs.registry }}
@@ -482,6 +591,7 @@ jobs:
       - sast
       - vuln-scan-fs
       - vuln-scan-config
+      - dependency-scan-rust
       - build-push
       - container-scan
     if: |
@@ -493,6 +603,7 @@ jobs:
         needs.sast.result == 'failure' ||
         needs.vuln-scan-fs.result == 'failure' ||
         needs.vuln-scan-config.result == 'failure' ||
+        needs.dependency-scan-rust.result == 'failure' ||
         needs.build-push.result == 'failure' ||
         needs.container-scan.result == 'failure'
       )
@@ -508,6 +619,7 @@ jobs:
           SAST_RESULT: ${{ needs.sast.result }}
           TRIVY_FS_RESULT: ${{ needs.vuln-scan-fs.result }}
           TRIVY_CONFIG_RESULT: ${{ needs.vuln-scan-config.result }}
+          CARGO_AUDIT_RESULT: ${{ needs.dependency-scan-rust.result }}
           BUILD_RESULT: ${{ needs.build-push.result }}
           CONTAINER_RESULT: ${{ needs.container-scan.result }}
         with:
@@ -519,6 +631,7 @@ jobs:
               'SAST':            process.env.SAST_RESULT,
               'Vuln scan (FS)':  process.env.TRIVY_FS_RESULT,
               'Vuln scan (Cfg)': process.env.TRIVY_CONFIG_RESULT,
+              'Cargo audit':     process.env.CARGO_AUDIT_RESULT,
               'Build & push':    process.env.BUILD_RESULT,
               'Container scan':  process.env.CONTAINER_RESULT,
             };
@@ -579,6 +692,7 @@ jobs:
       - sast
       - vuln-scan-fs
       - vuln-scan-config
+      - dependency-scan-rust
       - build-push
       - container-scan
     if: |
