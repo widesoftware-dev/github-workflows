@@ -1,0 +1,14 @@
+# CODEOWNERS — define quem aprova PRs por padrao.
+#
+# Regras casam path glob; quem matchar a ultima regra que bate na mudanca
+# vira reviewer obrigatorio. Ajuste o usuario/grupo conforme o time crescer.
+#
+# Sintaxe oficial: https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+*                           @throdines
+
+# Workflows: mudanca aqui afeta todos os clientes. Approval e obrigatorio.
+/.github/workflows/         @throdines
+
+# Examples: idem.
+/examples/                  @throdines

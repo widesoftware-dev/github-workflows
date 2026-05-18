@@ -1,0 +1,30 @@
+# Dependabot — auto-bump das actions referenciadas nos workflows daqui.
+#
+# Renovate seria alternativa; usamos dependabot por ser nativo do GitHub e
+# nao exigir instalacao de app. Roda semanalmente; ajustar pra "daily" se
+# o ritmo de PR ficar baixo demais.
+
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Sao_Paulo"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    reviewers:
+      - "throdines"
+    groups:
+      # Agrupa minor/patch num unico PR pra reduzir noise.
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
