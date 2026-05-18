@@ -11,6 +11,15 @@ on:
   push:
     branches: [main, homolog]
 
+# Caller defines the upper bound of permissions for any reusable workflow.
+# Without this block, the reusable runs with read-only defaults and fails to
+# authenticate via WIF or post PR-report comments.
+permissions:
+  contents: read
+  id-token: write       # required when auth-method: gcp-wif
+  pull-requests: write  # required for pr-report comments
+  packages: write       # required to push to ghcr.io (drop if not using)
+
 jobs:
   ci:
     uses: widesoftware-dev/github-workflows/.github/workflows/go.yml@v1.2.0
