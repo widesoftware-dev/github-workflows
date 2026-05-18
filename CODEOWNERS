@@ -5,10 +5,10 @@
 #
 # Sintaxe oficial: https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
-*                           @throdines
+*                           @throdines @shdacosta
 
 # Workflows: mudanca aqui afeta todos os clientes. Approval e obrigatorio.
-/.github/workflows/         @throdines
+/.github/workflows/         @throdines @shdacosta
 
 # Examples: idem.
-/examples/                  @throdines
+/examples/                  @throdines @shdacosta

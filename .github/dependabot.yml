@@ -22,6 +22,7 @@ updates:
       - "github-actions"
     reviewers:
       - "throdines"
+      - "shdacosta"
     groups:
       # Agrupa minor/patch num unico PR pra reduzir noise.
       actions-minor-patch:
