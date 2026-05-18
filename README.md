@@ -176,6 +176,20 @@ Wrapper Go. Aceita todos os inputs do `base.yml` mais:
 
 Não há wrapper dedicado para Next.js, NestJS, Vue, etc. — eles rodam em cima do `node.yml`. Ver `examples/consumer-nextjs.yml` e `examples/consumer-nestjs.yml` para configurações específicas (lint/typecheck/test command, build-args, semgrep-configs).
 
+## ⚠️ Caller permissions (obrigatório)
+
+GitHub Actions impõe que o **caller** define o limite superior de permissões pra qualquer reusable workflow. Sem o bloco abaixo, o reusable falha com `startup_failure` ao tentar usar WIF, ou roda mas não consegue postar PR report:
+
+```yaml
+permissions:
+  contents: read
+  id-token: write       # obrigatório se auth-method: gcp-wif
+  pull-requests: write  # obrigatório pro pr-report comentar no PR
+  packages: write       # obrigatório se push pra ghcr.io
+```
+
+Esse bloco está em todos os `examples/consumer-*.yml`.
+
 ## 6. Como adotar em um repo cliente
 
 ### Caminho rápido (Claude Code)
