@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   ci:
-    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.3.0
+    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.4.0
     secrets: inherit
     with:
       # ----- obrigatorios ---------------------------------------------------
@@ -62,6 +62,20 @@ jobs:
       # auth-method: 'gcp-wif'
       # gcp-workload-identity-provider: 'projects/123/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
       # gcp-service-account: 'sa-name@projeto.iam.gserviceaccount.com'
+
+      # ----- GitOps bump (opcional) -----------------------------------------
+      # Apos build-push, faz checkout do repo de ops, bumpa newTag no
+      # kustomization e commita. Roda em tag v* (env=prod) e/ou push em
+      # homolog (env=homolog) conforme gitops-bump-on.
+      # Pre-requisitos:
+      #   - vars.APP_ID com o App ID do GitHub App (ou setar gitops-app-id-var).
+      #   - secrets.GITOPS_APP_PRIVATE_KEY com a private key do App.
+      #   - kustomization existe no path resolvido pelo template.
+      # gitops-bump-enabled: true
+      # gitops-repo: 'org/microservice-ops'
+      # gitops-bump-on: 'both'                                        # tag | homolog | both
+      # gitops-path-template: '{repo}-{env}/kustomization.yaml'       # placeholders: {repo} {env}
+      # gitops-app-id-var: 'APP_ID'
 
       # ----- notificacao ----------------------------------------------------
       notify-channel: slack

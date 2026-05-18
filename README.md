@@ -115,6 +115,14 @@ Núcleo do pipeline. Pode ser chamado direto (sem testes de linguagem) ou via os
 | `gcp-workload-identity-provider` | string | `''` | WIF provider full path. Só `gcp-wif` |
 | `gcp-service-account` | string | `''` | Email da SA GCP. Só `gcp-wif` |
 | `cargo-audit-paths` | string | `''` | Diretórios com `Cargo.lock` separados por vírgula (ex: `blockchain`). Roda `cargo audit` em cada. Pula se vazio |
+| `gitops-bump-enabled` | boolean | `false` | Liga o job que atualiza um kustomization em outro repo de ops (estilo ArgoCD pull-based) |
+| `gitops-bump-on` | string | `both` | `tag` (só v*), `homolog` (só push em homolog) ou `both` |
+| `gitops-repo` | string | `''` | `owner/name` do repo de ops (ex: `org/microservice-ops`) |
+| `gitops-path-template` | string | `{repo}-{env}/kustomization.yaml` | Path do kustomization. Placeholders `{repo}` e `{env}` (`prod`/`homolog`) |
+| `gitops-app-id-var` | string | `APP_ID` | Nome da Actions Variable contendo o App ID; o reusable lê via `vars[<nome>]` |
+| `gitops-commit-message-template` | string | `chore({repo}): update {env} image to {tag}` | Mensagem do commit. Placeholders `{repo}`, `{env}`, `{tag}` |
+
+Secret extra quando `gitops-bump-enabled: true`: `GITOPS_APP_PRIVATE_KEY` (private key do GitHub App).
 
 Secrets necessários (definidos no repo consumidor):
 
