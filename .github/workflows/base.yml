@@ -700,7 +700,7 @@ jobs:
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ vars[inputs.gitops-app-id-var] }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
           owner: ${{ steps.resolve.outputs.gitops-owner }}
           repositories: ${{ steps.resolve.outputs.gitops-name }}
 
