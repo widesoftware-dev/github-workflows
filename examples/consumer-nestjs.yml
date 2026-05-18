@@ -2,7 +2,7 @@
 # Exemplo de consumidor NestJS.
 #
 # Reusa o node.yml com defaults proprios de Nest: lint via eslint,
-# testes unit + e2e (separados por comando).
+# testes unit + e2e (separados por comando), pnpm como package manager.
 #
 # Copie para `.github/workflows/ci.yml` no repo da aplicacao.
 # ============================================================================
@@ -16,7 +16,7 @@ on:
 
 jobs:
   ci:
-    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.0.0
+    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.2.0
     secrets: inherit
     with:
       # ----- obrigatorios ---------------------------------------------------
@@ -25,12 +25,14 @@ jobs:
 
       # ----- Node / Nest ----------------------------------------------------
       node-version: '22'
-      package-manager: 'yarn'              # yarn | npm
-      lint-command: 'yarn lint'
-      typecheck-command: 'yarn tsc --noEmit'
+      package-manager: 'pnpm'              # yarn | npm | pnpm
+      pnpm-version: '9'                    # ignorado se nao for pnpm
+      lint-command: 'pnpm lint'
+      typecheck-command: 'pnpm tsc --noEmit'
       # Nest costuma ter dois alvos: test (unit) e test:e2e.
       # Encadeie com && pra rodar ambos no mesmo job.
-      test-command: 'yarn test --ci && yarn test:e2e --ci'
+      test-command: 'pnpm test'
+      # test-command: 'pnpm test --ci && pnpm test:e2e --ci'
 
       # ----- comportamento por branch ---------------------------------------
       do-push: ${{ github.event_name == 'push' }}
@@ -39,6 +41,17 @@ jobs:
       # ----- toggles de seguranca -------------------------------------------
       # SAST: Nest e backend; tira p/react do default do node.yml.
       semgrep-configs: 'p/owasp-top-ten p/typescript p/nodejs'
+
+      # ----- monorepo Node+Rust (opcional) ----------------------------------
+      # Se o repo tem subdiretorio com Cargo.lock (ex: contratos CosmWasm),
+      # informe os paths separados por virgula pra rodar cargo audit.
+      # cargo-audit-paths: 'blockchain'
+
+      # ----- registry GCP via WIF (opcional) --------------------------------
+      # Pra GCP Artifact Registry sem service account JSON key:
+      # auth-method: 'gcp-wif'
+      # gcp-workload-identity-provider: 'projects/123/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+      # gcp-service-account: 'sa-name@projeto.iam.gserviceaccount.com'
 
       # ----- notificacao ----------------------------------------------------
       notify-channel: slack

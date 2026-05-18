@@ -2,11 +2,12 @@
 # node.yml — wrapper Node.js/TypeScript.
 #
 # Adiciona testes e dependency scan especificos de Node antes de chamar
-# base.yml. Suporta yarn e npm (auto-detecta via lockfile).
+# base.yml. Suporta yarn, npm e pnpm.
 #
 # Fluxo:
-#   1. Job `test`: setup Node + corepack (yarn) + install + lint/typecheck/
-#      test (opcionais) + dependency scan (yarn/npm audit).
+#   1. Job `test`: setup Node + setup do package-manager (pnpm/corepack)
+#      + install + lint/typecheck/test (opcionais) + dependency scan
+#      (yarn/npm/pnpm audit).
 #   2. Job `pipeline`: chama base.yml. needs: test.
 # ============================================================================
 name: Node pipeline
@@ -21,17 +22,22 @@ on:
         type: string
         default: '22'
       package-manager:
-        description: 'Package manager: yarn | npm.'
+        description: 'Package manager: yarn | npm | pnpm.'
         required: false
         type: string
         default: 'yarn'
+      pnpm-version:
+        description: 'Versao do pnpm (so usado quando package-manager=pnpm).'
+        required: false
+        type: string
+        default: '9'
       install-command:
-        description: 'Comando de install. Vazio = decide pelo package-manager (yarn install --immutable / npm ci).'
+        description: 'Comando de install. Vazio = decide pelo package-manager (yarn install --immutable / npm ci / pnpm install --frozen-lockfile).'
         required: false
         type: string
         default: ''
       test-command:
-        description: 'Comando de testes. Vazio = pula. Ex: yarn test, npm test.'
+        description: 'Comando de testes. Vazio = pula. Ex: yarn test, npm test, pnpm test.'
         required: false
         type: string
         default: ''
@@ -46,10 +52,10 @@ on:
         type: string
         default: ''
       pre-install-command:
-        description: 'Comando opcional antes do install (ex: corepack enable).'
+        description: 'Comando opcional antes do install (ex: corepack enable). Default vazio quando pm=pnpm (pnpm/action-setup ja resolve).'
         required: false
         type: string
-        default: 'corepack enable'
+        default: ''
 
       # ----- inputs repassados pro base.yml ----------------------------------
       image-name:        { required: true,  type: string }
@@ -73,6 +79,11 @@ on:
       notify-on:         { required: false, type: string, default: 'failure' }
       slack-channel:     { required: false, type: string, default: '' }
       email-to:          { required: false, type: string, default: '' }
+      # Inputs adicionais do base.yml v1.2.0+ (auth WIF, cargo audit)
+      auth-method:                { required: false, type: string, default: 'docker-login' }
+      gcp-workload-identity-provider: { required: false, type: string, default: '' }
+      gcp-service-account:        { required: false, type: string, default: '' }
+      cargo-audit-paths:          { required: false, type: string, default: '' }
 
     secrets:
       REGISTRY_USERNAME:    { required: false }
@@ -91,16 +102,27 @@ jobs:
   # ===========================================================================
   # Testes Node
   # ---------------------------------------------------------------------------
-  # Corepack ativado ANTES do setup-node — necessario quando packageManager
-  # do package.json esta em yarn@4.x (ou pnpm). Sem isso, setup-node usa o
-  # yarn 1.22 global do runner pra resolver cache, e quebra.
+  # Ordem importante:
+  #   1. Setup do package manager (pnpm/corepack) ANTES do setup-node, pra
+  #      que setup-node consiga resolver o cache da ferramenta corretamente.
+  #   2. setup-node com cache: <pm>.
+  #   3. Install + audit + lint/typecheck/test.
   # ===========================================================================
   test:
     name: Test (Node ${{ inputs.node-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
+
+      # pnpm precisa do pnpm/action-setup ANTES do setup-node (pnpm nao vem
+      # pre-instalado no runner; corepack ainda nao habilita pnpm@9+ por
+      # padrao). Yarn 4.x usa corepack via pre-install-command opcional.
+      - name: Setup pnpm
+        if: inputs.package-manager == 'pnpm'
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ inputs.pnpm-version }}
 
       - name: Pre-install hook
         if: inputs.pre-install-command != ''
@@ -121,20 +143,33 @@ jobs:
         run: |
           if [ -n "$CUSTOM" ]; then
             bash -c "$CUSTOM"
+          elif [ "$PM" = "pnpm" ]; then
+            pnpm install --frozen-lockfile
           elif [ "$PM" = "yarn" ]; then
             yarn install --immutable
           else
             npm ci
           fi
 
-      # Dependency scan: yarn npm audit ou npm audit. Bloqueia HIGH+CRITICAL.
+      # Dependency scan: bloqueia HIGH+CRITICAL.
+      # pnpm/yarn npm audit: parseamos JSON pra contar — alguns retornam
+      # exit code 0 mesmo com vulns.
       - name: Dependency audit
         if: inputs.run-dependency-scan
         env:
           PM: ${{ inputs.package-manager }}
         run: |
           set -e
-          if [ "$PM" = "yarn" ]; then
+          if [ "$PM" = "pnpm" ]; then
+            pnpm audit --json 2>/dev/null > pm-audit.json || true
+            HIGH_PLUS=$(jq '.metadata.vulnerabilities.critical + .metadata.vulnerabilities.high' pm-audit.json)
+            echo "### pnpm audit" >> "$GITHUB_STEP_SUMMARY"
+            echo "- High + Critical: ${HIGH_PLUS}" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$HIGH_PLUS" -gt 0 ]; then
+              echo "::error::pnpm audit encontrou ${HIGH_PLUS} vulnerabilidades HIGH/CRITICAL"
+              exit 1
+            fi
+          elif [ "$PM" = "yarn" ]; then
             yarn npm audit --recursive --all --severity high
           else
             npm audit --audit-level=high
@@ -166,6 +201,13 @@ jobs:
     needs: test
     uses: ./.github/workflows/base.yml
     secrets: inherit
+    # id-token: write necessario quando auth-method=gcp-wif. Concedido
+    # incondicionalmente — sem efeito quando docker-login.
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+      id-token: write
     with:
       image-name:          ${{ inputs.image-name }}
       registry:            ${{ inputs.registry }}
@@ -188,3 +230,7 @@ jobs:
       notify-on:           ${{ inputs.notify-on }}
       slack-channel:       ${{ inputs.slack-channel }}
       email-to:            ${{ inputs.email-to }}
+      auth-method:                    ${{ inputs.auth-method }}
+      gcp-workload-identity-provider: ${{ inputs.gcp-workload-identity-provider }}
+      gcp-service-account:            ${{ inputs.gcp-service-account }}
+      cargo-audit-paths:              ${{ inputs.cargo-audit-paths }}
