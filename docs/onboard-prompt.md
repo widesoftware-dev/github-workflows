@@ -1,134 +1,113 @@
 # Onboarding Prompt — Widesoftware CI/CD
 
-Prompt pronto pra você colar no Claude Code rodando **dentro do repositório do cliente**. O Claude lê as respostas que você preencher, cria o `.github/workflows/ci.yml`, lista os secrets necessários e te entrega um checklist final.
+Prompt pra colar no Claude Code rodando **dentro do repositório do cliente**. O Claude descobre quase tudo sozinho (linguagem, versões, comandos, registry, WIF, etc.), te pergunta só o que não dá pra inferir, gera o `ci.yml` e te entrega checklist de secrets.
 
 ## Como usar
 
-1. Abra o **Claude Code no repositório do cliente** (não neste repo).
-2. Copie tudo abaixo a partir do `── COPIE A PARTIR DAQUI ──`.
-3. Preencha os campos `[...]` com as respostas do cliente.
-4. Cole no Claude.
-5. Aprove as ações que ele propor (criação do `ci.yml`, possível `Dockerfile` placeholder etc.).
+1. Abra o Claude Code **no repositório do cliente** (não neste repo).
+2. Copie o bloco abaixo a partir do `── COPIE ──`.
+3. Cole no Claude.
+4. Responda só as perguntas que ele te fizer.
+5. Revise o YAML proposto e aprove a criação do arquivo.
 
 ---
 
-── COPIE A PARTIR DAQUI ──
+── COPIE ──
 
-Você está rodando dentro do repositório de aplicação de um cliente Widesoftware. Sua tarefa é configurar o CI/CD usando os reusable workflows do repo `widesoftware-dev/github-workflows`. Não invente nada — use exatamente os exemplos do repo público em `https://github.com/widesoftware-dev/github-workflows/tree/main/examples`.
+Configure CI/CD neste repositório usando os reusable workflows do `widesoftware-dev/github-workflows` (https://github.com/widesoftware-dev/github-workflows). Trabalhe em duas fases: **descoberta automática** primeiro, **perguntas** só do que faltou.
 
-Antes de qualquer escrita:
+### Fase 1 — descoberta automática
 
-1. Leia as respostas abaixo.
-2. Detecte conflitos (linguagem não suportada, registry vazio, etc.) e me pergunte antes de seguir.
-3. Liste o plano em uma linha por etapa antes de aplicar.
+Inspecione o repo e detecte:
 
-## Respostas do cliente
+1. **Stack** (em ordem de prioridade):
+   - `php` se existe `composer.json`.
+   - `go` se existe `go.mod`.
+   - `node` base; depois identifique framework:
+     - `nestjs` se existe `nest-cli.json`.
+     - `nextjs` se existe `next.config.{js,mjs,ts}`.
+     - `node` genérico caso contrário.
 
-```yaml
-# ── Identificação ─────────────────────────────────────────────────────────
-cliente: "[nome curto, ex: cliente-a]"
-projeto: "[nome do app, ex: meu-app-api]"
+2. **Package manager** (Node):
+   - `pnpm` se `pnpm-lock.yaml`.
+   - `yarn` se `yarn.lock`.
+   - `npm` se `package-lock.json`.
 
-# ── Stack ─────────────────────────────────────────────────────────────────
-# Opções: php | node | nextjs | nestjs | go
-linguagem: "[php|node|nextjs|nestjs|go]"
-# Versão da linguagem. Ex: 8.3 (PHP), 22 (Node), 1.23 (Go).
-versao_linguagem: "[ex: 8.3]"
+3. **Versão da runtime** (na ordem; primeiro hit vence):
+   - Node: `.nvmrc` → `package.json.engines.node` → env do CI legado (`NODE_VERSION`) → `22`.
+   - PHP: `composer.json.config.platform.php` → `.php-version` → CI legado → `8.3`.
+   - Go: linha `go` do `go.mod` → CI legado → `1.23`.
+   - pnpm: `package.json.packageManager` → env do CI legado (`PNPM_VERSION`) → `9`.
 
-# ── Imagem & registry ─────────────────────────────────────────────────────
-image_name: "[ex: meu-app-api]"
-registry: "[ex: registry.cliente.com.br ou ghcr.io/cliente-a]"
-dockerfile: "Dockerfile"           # ajuste se o cliente usa outro path
-dockerfile_target: ""              # vazio = última stage; ex: 'production', 'release'
-platforms: "linux/amd64"           # ou 'linux/amd64,linux/arm64'
+4. **Comandos**:
+   - Node: `scripts.test`, `scripts.lint`, `scripts.typecheck` do `package.json`.
+   - PHP: `scripts.test` do `composer.json`; default `vendor/bin/pest`.
+   - Go: default `go test -race -count=1 ./...`.
+   - Use o prefixo do package manager detectado (ex: `pnpm test`).
 
-# ── Branches ──────────────────────────────────────────────────────────────
-# Habilita 'homolog' como branch não-bloqueante além da 'main'?
-usa_homolog: "[sim|nao]"
+5. **CI legado** — se `.github/workflows/*.yml` existir, leia todos e extraia:
+   - **Registry**: procure por `docker/login-action`, `docker/build-push-action.tags`, e o host (ex: `southamerica-east1-docker.pkg.dev/<projeto>/<repo>`).
+   - **WIF GCP**: presença de `google-github-actions/auth@v2` → `auth-method: gcp-wif`. Pegue `workload_identity_provider` e `service_account`.
+   - **Branches**: `on.push.branches` e `on.pull_request.branches`.
+   - **Semgrep configs**: linhas `--config p/...`.
+   - **Cargo audit**: presença de step `cargo audit` ou `Cargo.lock` → setar `cargo-audit-paths`.
 
-# ── Comandos (preencha só os relevantes pra linguagem) ────────────────────
-test_command: "[ex: vendor/bin/pest | yarn test | go test ./...]"
-lint_command: "[opcional, ex: yarn lint]"
-typecheck_command: "[opcional, ex: yarn tsc --noEmit]"
-# Para PHP apenas:
-php_run_static_analysis: "[sim|nao]"   # phpstan/larastan
-php_run_code_style: "[sim|nao]"        # Pint
-# Para Go apenas:
-go_run_staticcheck: "[sim|nao]"
-go_run_golangci_lint: "[sim|nao]"
+6. **Image name**: nome do diretório do repo (`basename "$(pwd)"`).
 
-# ── Toggles de segurança ──────────────────────────────────────────────────
-# Default: todos true. Liste apenas os que o cliente precisa desabilitar
-# por ser legado (separados por vírgula). Vazio = todos true.
-# Valores válidos: secrets, vuln, sast, dependency, container
-desabilitar_scans: "[ex: sast,dependency  |  vazio]"
+7. **Tag do reusable**: consulte as tags ativas:
+   ```sh
+   gh api /repos/widesoftware-dev/github-workflows/tags --jq '.[0:5] | .[].name'
+   ```
+   Proponha a mais recente (que case com semver `vX.Y.Z`).
 
-# ── Notificações ──────────────────────────────────────────────────────────
-# Opções: none | slack | email | both
-notify_channel: "[none|slack|email|both]"
-notify_on: "[failure|always]"
-slack_channel: "[ex: #ci-cliente-a, ou vazio]"
-email_to: "[ex: dev@cliente.com,ops@cliente.com, ou vazio]"
+### Fase 2 — resumo + perguntas mínimas
 
-# ── Versão do reusable workflow ───────────────────────────────────────────
-# Pinar em tag semver. Consulte https://github.com/widesoftware-dev/github-workflows/tags
-versao_workflow: "[ex: v1.1.0]"
+**Mostre** ao usuário um resumo em bullets do que detectou. Marque com `?` qualquer campo que ficou indeterminado.
 
-# ── Build args do Docker (opcional, multiline) ────────────────────────────
-build_args: |
-  # APP_ENV=production
-  # NEXT_PUBLIC_API_URL=https://api.cliente.com
-```
+**Pergunte APENAS o que faltou ou é ambíguo**. Casos comuns:
+- Tag do reusable se múltiplas opções viáveis (ofereça a mais recente como recomendada).
+- Notificação: `none` | `slack` | `email` | `both`. Se `slack`, peça canal. Se `email`, peça destinatários.
+- Quais scans desligar (default: nenhum). Apenas se o usuário pedir.
+- Se branch `homolog` deve ser incluída quando não detectada no legado.
 
-## O que você (Claude) deve fazer
+Não pergunte nada que já tenha sido detectado com confiança.
 
-1. **Validar**:
-   - `linguagem` deve ser uma das suportadas.
-   - `image_name`, `registry`, `versao_workflow` não podem estar vazios.
-   - `versao_workflow` deve ser uma tag semver real do repo. Verificar com `gh api /repos/widesoftware-dev/github-workflows/tags --jq '.[].name'`.
-   - Se `notify_channel ∈ {slack, both}` mas `slack_channel` vazio → confirmar comigo.
-   - Se `notify_channel ∈ {email, both}` mas `email_to` vazio → confirmar comigo.
+### Fase 3 — geração
 
-2. **Buscar template** correspondente à `linguagem` em `https://raw.githubusercontent.com/widesoftware-dev/github-workflows/<versao_workflow>/examples/consumer-<linguagem>.yml`.
+Use o exemplo de `examples/consumer-<stack>.yml` da tag escolhida (`https://raw.githubusercontent.com/widesoftware-dev/github-workflows/<tag>/examples/consumer-<stack>.yml`) como base.
 
-3. **Gerar `.github/workflows/ci.yml`** baseado no template, aplicando:
-   - Substituir `image-name`, `registry`, `php-version` / `node-version` / `go-version`, etc.
-   - Substituir `@v1.0.0` (e similares) pela `versao_workflow` informada.
-   - `do-push: ${{ github.event_name == 'push' }}` (mantém padrão dos examples).
-   - `block-on-failure: ${{ github.ref == 'refs/heads/main' }}` se `usa_homolog == sim`; caso contrário, `block-on-failure: true` fixo.
-   - Ajustar `branches:` no `on:` conforme `usa_homolog`.
-   - Para cada item em `desabilitar_scans`, setar `run-<item>-scan: false` (mapear: `secrets→run-secrets-scan`, `vuln→run-vuln-scan`, `sast→run-sast`, `dependency→run-dependency-scan`, `container→run-container-scan`).
-   - Configurar `notify-channel`, `notify-on`, `slack-channel`, `email-to`.
-   - Aplicar `build_args` se preenchido.
-   - Para PHP: ativar `run-static-analysis` / `run-code-style` conforme respostas.
-   - Para Go: ativar `run-staticcheck` / `run-golangci-lint` conforme respostas.
+**Saída** — onde criar:
+- Se NÃO existe `.github/workflows/ci.yml`: crie como `.github/workflows/ci.yml`.
+- Se EXISTE: crie como `.github/workflows/ci-v2.yml` lado a lado, preservando o legado. Comente no topo do arquivo que é piloto e que o legado será removido depois da validação.
 
-4. **Pré-requisitos do repo**:
-   - Verificar se `Dockerfile` existe no path indicado. Se não, me alertar (não criar placeholder sem aprovação).
-   - Verificar se a stack já tem manifesto (`composer.json` / `package.json` / `go.mod`). Se ausente, me alertar.
+**Regras obrigatórias do YAML**:
+- `uses:` sempre em `@vX.Y.Z` (semver), nunca `@main`.
+- `do-push: ${{ github.event_name == 'push' }}` (não faz push em PR).
+- `block-on-failure: ${{ github.ref == 'refs/heads/main' }}` se houver `homolog` ou outra branch não-bloqueante. Caso só `main`, fixar `true`.
+- Passar `package-manager`, `pnpm-version` (se pnpm), `node-version`/`php-version`/`go-version`, e os comandos detectados.
+- Repassar inputs WIF (`auth-method`, `gcp-workload-identity-provider`, `gcp-service-account`) se detectados.
+- Repassar `cargo-audit-paths` se Cargo.lock(s) encontrado(s).
+- Notificações conforme respostas.
 
-5. **Listar secrets que o cliente precisa criar** no repo, com base nas respostas:
-   - Sempre: `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`.
+### Fase 4 — entrega
+
+1. Mostre o YAML completo proposto para revisão. Não commite.
+2. Liste secrets a configurar (Settings → Secrets and variables → Actions):
+   - Sempre que `auth-method: docker-login`: `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`.
+   - Quando WIF: nenhum secret de registry (a WIF já resolve), mas confirme que a service account tem `Artifact Registry Writer`.
    - Se Slack: `SLACK_WEBHOOK_URL`.
    - Se Email: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`.
+3. Sugira o próximo passo (criar branch, abrir PR, etc.), mas **não execute git/gh sem aprovação**.
 
-6. **Entregar um checklist final** com:
-   - Path do arquivo criado.
-   - Secrets a configurar (link do Settings → Actions → Secrets).
-   - Como abrir PR de adoção.
-   - Como configurar Renovate/Dependabot pra auto-bump da tag do reusable.
-
-7. **Não commitar nem abrir PR sozinho**. Mostrar o `ci.yml` gerado pra eu revisar antes.
-
-── COPIE ATÉ AQUI ──
+── FIM ──
 
 ---
 
-## Manutenção
+## Manutenção do prompt
 
-Quando a tag do reusable (`widesoftware-dev/github-workflows`) ganhar novos inputs ou novos wrappers, atualize:
+Ao bumpar a tag do reusable ou adicionar novos inputs:
+- Atualize `examples/*.yml` deste repo (são a fonte da geração).
+- Se uma nova capacidade exigir input que não dá pra inferir, adicione na Fase 2 com pergunta clara.
+- Se uma capacidade nova for inferível, adicione na Fase 1.
 
-- `versao_workflow` recomendada no bloco de respostas.
-- Validações novas em "O que você (Claude) deve fazer".
-
-Mantenha o prompt em sincronia com `examples/*.yml` deste repo.
+Princípio: **toda nova feature começa como auto-detecção. Pergunta é último recurso.**
