@@ -279,16 +279,18 @@ jobs:
       - name: Run Semgrep
         # Input via env evita workflow injection. Itera sobre os tokens
         # separados por espaco e gera flags --config pra cada um.
-        # Array bash evita word-splitting do shellcheck (SC2086).
+        # Usa `set --` (POSIX) ao inves de array bash porque o container do
+        # Semgrep e alpine + sh; arrays bash dao "syntax error: unexpected ("
+        # em sh. set -- preserva word-splitting controlado e shellcheck OK.
         env:
           SEMGREP_CONFIGS: ${{ inputs.semgrep-configs }}
         run: |
           set -e
-          CONFIG_ARGS=()
+          set --
           for cfg in $SEMGREP_CONFIGS; do
-            CONFIG_ARGS+=("--config" "$cfg")
+            set -- "$@" --config "$cfg"
           done
-          semgrep scan "${CONFIG_ARGS[@]}" --severity ERROR --error --sarif --output semgrep.sarif
+          semgrep scan "$@" --severity ERROR --error --sarif --output semgrep.sarif
 
       - name: Upload report
         if: always()
