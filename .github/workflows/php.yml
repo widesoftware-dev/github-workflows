@@ -77,6 +77,12 @@ on:
       gcp-workload-identity-provider: { required: false, type: string, default: '' }
       gcp-service-account:        { required: false, type: string, default: '' }
       cargo-audit-paths:          { required: false, type: string, default: '' }
+      gitops-bump-enabled:        { required: false, type: boolean, default: false }
+      gitops-bump-on:             { required: false, type: string, default: 'both' }
+      gitops-repo:                { required: false, type: string, default: '' }
+      gitops-path-template:       { required: false, type: string, default: '{repo}-{env}/kustomization.yaml' }
+      gitops-app-id-var:          { required: false, type: string, default: 'APP_ID' }
+      gitops-commit-message-template: { required: false, type: string, default: 'chore({repo}): update {env} image to {tag}' }
 
     secrets:
       REGISTRY_USERNAME:    { required: false }
@@ -87,6 +93,7 @@ on:
       SMTP_USERNAME:        { required: false }
       SMTP_PASSWORD:        { required: false }
       SMTP_FROM:            { required: false }
+      GITOPS_APP_PRIVATE_KEY: { required: false }
 
 permissions:
   contents: read
@@ -195,3 +202,9 @@ jobs:
       gcp-workload-identity-provider: ${{ inputs.gcp-workload-identity-provider }}
       gcp-service-account:            ${{ inputs.gcp-service-account }}
       cargo-audit-paths:              ${{ inputs.cargo-audit-paths }}
+      gitops-bump-enabled:            ${{ inputs.gitops-bump-enabled }}
+      gitops-bump-on:                 ${{ inputs.gitops-bump-on }}
+      gitops-repo:                    ${{ inputs.gitops-repo }}
+      gitops-path-template:           ${{ inputs.gitops-path-template }}
+      gitops-app-id-var:              ${{ inputs.gitops-app-id-var }}
+      gitops-commit-message-template: ${{ inputs.gitops-commit-message-template }}
