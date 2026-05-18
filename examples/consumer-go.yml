@@ -19,10 +19,11 @@ permissions:
   id-token: write       # required when auth-method: gcp-wif
   pull-requests: write  # required for pr-report comments
   packages: write       # required to push to ghcr.io (drop if not using)
+  actions: read         # required to read run metadata in pr-report (drop if pr-report is disabled)
 
 jobs:
   ci:
-    uses: widesoftware-dev/github-workflows/.github/workflows/go.yml@v1.2.0
+    uses: widesoftware-dev/github-workflows/.github/workflows/go.yml@v1.2.2
     secrets: inherit
     with:
       # ----- obrigatorios ---------------------------------------------------

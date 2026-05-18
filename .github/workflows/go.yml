@@ -161,6 +161,7 @@ jobs:
       packages: write
       pull-requests: write
       id-token: write
+      actions: read         # required by the nested pr-report job in base.yml
     with:
       image-name:          ${{ inputs.image-name }}
       registry:            ${{ inputs.registry }}
