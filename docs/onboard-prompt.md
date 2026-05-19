@@ -37,7 +37,7 @@ Inspecione o repo e detecte:
    - Node: `.nvmrc` → `package.json.engines.node` → env `NODE_VERSION` no CI legado → `22`.
    - PHP: `composer.json.config.platform.php` → `.php-version` → CI legado → `8.3`.
    - Go: linha `go` do `go.mod` → CI legado → `1.23`.
-   - pnpm: `package.json.packageManager` → env `PNPM_VERSION` no CI legado → `9`.
+   - pnpm: se `package.json` já tem `packageManager: 'pnpm@X.Y.Z'`, **NÃO setar `pnpm-version` no `ci.yml`** (o `pnpm/action-setup` lê de lá e qualquer override conflita → erro `Multiple versions of pnpm specified`). Setar só quando o repo NÃO tem `packageManager`.
 
 4. **Comandos**:
    - Node: `scripts.test`, `scripts.lint`, `scripts.typecheck` do `package.json` (use o prefixo do package manager).
