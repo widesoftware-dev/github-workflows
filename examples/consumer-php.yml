@@ -24,14 +24,13 @@ permissions:
   contents: read
   id-token: write       # required when auth-method: gcp-wif
   pull-requests: write  # required for pr-report comments
-  packages: write       # required to push to ghcr.io (drop if not using)
   actions: read         # required to read run metadata in pr-report (drop if pr-report is disabled)
 
 jobs:
   ci:
     # Pinar em tag semver — nunca @main em producao.
     # Bumps automaticos: configure Renovate ou Dependabot pra este `uses:`.
-    uses: widesoftware-dev/github-workflows/.github/workflows/php.yml@v1.6.1
+    uses: widesoftware-dev/github-workflows/.github/workflows/php.yml@v1.6.2
     secrets: inherit
     with:
       # ----- obrigatorios ---------------------------------------------------

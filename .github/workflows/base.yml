@@ -210,12 +210,10 @@ on:
 
 # Permissoes minimas necessarias:
 #   contents: read         — checkout
-#   packages: write        — push pra ghcr.io (caso usado)
-#   pull-requests: write   — comentar no PR (pr-report)
+# #   pull-requests: write   — comentar no PR (pr-report)
 #   id-token: write        — OIDC pra Workload Identity Federation (auth-method=gcp-wif)
 permissions:
   contents: read
-  packages: write
   pull-requests: write
   id-token: write
 

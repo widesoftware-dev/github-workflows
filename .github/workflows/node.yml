@@ -343,7 +343,6 @@ jobs:
     secrets: inherit
     permissions:
       contents: read
-      packages: write
       pull-requests: write
       id-token: write
       actions: read

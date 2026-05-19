@@ -99,7 +99,6 @@ permissions:
   contents: read
   id-token: write       # WIF
   pull-requests: write  # PR report
-  packages: write       # ghcr.io (drop se não usar)
   actions: read         # pr-report do reusable lê run metadata
 
 jobs:
@@ -164,6 +163,7 @@ jobs:
 **Regras invariantes**:
 - `uses:` sempre pinado em `@vX.Y.Z`. Nunca `@main`.
 - Bloco `permissions:` sempre presente. Caller é teto pro reusable.
+- O bloco `permissions:` do caller deve incluir **TODAS** as permissões que o reusable declarar em qualquer um dos seus jobs. Se faltar alguma, o GitHub rejeita o workflow no parse com `The nested job 'X' is requesting 'Y: write', but is only allowed 'Y: none'`. Lista mínima atual: `contents: read`, `id-token: write`, `pull-requests: write`, `actions: read`. **Não dropar `actions: read` mesmo achando "que não precisa"** — o report depende dele.
 - `secrets:` explícito sempre que precisar de org secret cross-org.
 - **NÃO usar gitops-bump dentro do reusable workflow** — extraído pra composite action a partir de `v1.5.0`. Gere como job próprio do caller (visto acima).
 - **Não setar** `dockerfile-target` por default — stages parciais frequentemente não compilam standalone (especialmente Nest). Ative só se o cliente confirmar que a stage roda isolada.
