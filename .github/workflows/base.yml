@@ -207,6 +207,9 @@ on:
       image-ref:
         description: 'Referencia completa da imagem (registry/name:tag). Util pro caller encadear jobs adicionais.'
         value: ${{ jobs.build-push.outputs.image-ref }}
+      build-pushed:
+        description: '"true" se build-push completou com sucesso E do-push era true. Caller usa pra decidir se ja roda gitops mesmo com scans falhando.'
+        value: ${{ jobs.build-push.outputs.build-pushed }}
 
 # Permissoes minimas necessarias:
 #   contents: read         — checkout
@@ -449,6 +452,7 @@ jobs:
       )
     outputs:
       image-ref: ${{ steps.meta.outputs.image-ref }}
+      build-pushed: ${{ steps.pushed.outputs.value }}
     steps:
       - uses: actions/checkout@v6
 
@@ -520,6 +524,14 @@ jobs:
           build-args: ${{ inputs.build-args }}
           cache-from: type=gha,scope=${{ inputs.image-name }}
           cache-to: type=gha,scope=${{ inputs.image-name }},mode=max
+
+      # Setado APENAS se build-push subiu efetivamente uma imagem. Caller usa
+      # esse output pra decidir se pode rodar gitops bump mesmo quando scans
+      # individuais falharam (cenario homolog block-on-failure=false).
+      - name: Mark build pushed
+        id: pushed
+        if: inputs.do-push
+        run: echo "value=true" >> "$GITHUB_OUTPUT"
 
   # ===========================================================================
   # 6. CONTAINER SCAN — Trivy image
@@ -649,8 +661,10 @@ jobs:
               .filter(([, r]) => r === 'success').length;
             const hasFailure = failedNames.length > 0;
 
-            // ---- Extrai trechos de log dos jobs com failure ----------------
-            const TRUNCATE_LINES = 25;
+            // ---- Extrai trechos de log POR STEP que falhou dentro do job ---
+            // mk-frontend style: cada step com failure tem seu proprio
+            // <details> com as linhas relevantes pertencentes a esse step.
+            const STEP_LINES_MAX = 40;
             const ERROR_PATTERNS = [
               /^##\[error\]/i,
               /\bERROR\b/,
@@ -664,28 +678,49 @@ jobs:
               /Process completed with exit code [^0]/,
               /HIGH:|CRITICAL:/,
               /--- FAIL:/,
+              /unable to|cannot find|denied/i,
             ];
             const STRIP_TIMESTAMP = /^\S+\s+\S+\s+\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s?/;
 
-            async function fetchJobSummary(jobId) {
+            // GitHub logs come prefixed per-step with the step name on a
+            // ##[group] line. Parse the log into per-step buckets so each
+            // failure can be quoted next to its own step.
+            function bucketLinesByStep(rawText) {
+              const lines = rawText.split('\n')
+                .map(l => l.replace(STRIP_TIMESTAMP, ''));
+              const buckets = []; // { name, lines: [...] }
+              let current = { name: '(setup)', lines: [] };
+              for (const l of lines) {
+                const m = l.match(/^##\[group\]Run\s+(.+)$/);
+                if (m) {
+                  if (current.lines.length) buckets.push(current);
+                  current = { name: m[1].split('\n')[0].slice(0, 120), lines: [] };
+                  continue;
+                }
+                current.lines.push(l);
+              }
+              if (current.lines.length) buckets.push(current);
+              return buckets;
+            }
+
+            function pickErrorLines(stepLines) {
+              const trimmed = stepLines.map(l => l.trim()).filter(Boolean);
+              const matched = trimmed.filter(l => ERROR_PATTERNS.some(p => p.test(l)));
+              const picked = (matched.length ? matched : trimmed).slice(-STEP_LINES_MAX);
+              return picked.join('\n').slice(0, 4000);
+            }
+
+            async function fetchJobLog(jobId) {
               try {
                 const res = await github.request(
                   'GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs',
                   { owner, repo, job_id: jobId, request: { redirect: 'follow' } }
                 );
-                const text = typeof res.data === 'string'
+                return typeof res.data === 'string'
                   ? res.data
                   : Buffer.from(res.data).toString('utf8');
-                const lines = text.split('\n')
-                  .map(l => l.replace(STRIP_TIMESTAMP, '').trim())
-                  .filter(Boolean);
-                const matched = lines.filter(l =>
-                  ERROR_PATTERNS.some(p => p.test(l))
-                );
-                const picked = (matched.length ? matched : lines).slice(-TRUNCATE_LINES);
-                return picked.join('\n').slice(0, 4000);
               } catch (e) {
-                return `(falha ao buscar logs: ${e.message})`;
+                return null;
               }
             }
 
@@ -696,21 +731,52 @@ jobs:
               });
               const failedJobs = jobs.filter(j => j.conclusion === 'failure');
               const sections = [];
+
               for (const job of failedJobs) {
-                const summary = await fetchJobSummary(job.id);
+                const failedSteps = (job.steps || []).filter(s => s.conclusion === 'failure');
+                const log = await fetchJobLog(job.id);
+                const buckets = log ? bucketLinesByStep(log) : [];
+                const stepSections = [];
+
+                if (failedSteps.length === 0) {
+                  // Job marcado failure mas sem step failure visivel — quote
+                  // ultimas linhas do log inteiro pro dev se virar.
+                  const all = buckets.flatMap(b => b.lines);
+                  const tail = pickErrorLines(all);
+                  stepSections.push([
+                    '```',
+                    tail || '(sem saída relevante)',
+                    '```',
+                  ].join('\n'));
+                } else {
+                  for (const step of failedSteps) {
+                    const bucket = buckets.find(b => b.name === step.name) ||
+                                   buckets.find(b => b.name.includes(step.name));
+                    const snippet = bucket
+                      ? pickErrorLines(bucket.lines)
+                      : '(log do step nao encontrado — abra "ver logs" pra inspecionar)';
+                    stepSections.push([
+                      `**Step com falha:** \`${step.name}\``,
+                      '',
+                      '```',
+                      snippet || '(sem saída relevante)',
+                      '```',
+                    ].join('\n'));
+                  }
+                }
+
                 sections.push([
                   '<details>',
                   `<summary>❌ <strong>${job.name}</strong> — <a href="${job.html_url}">ver logs</a></summary>`,
                   '',
-                  '```',
-                  summary || '(sem saída relevante)',
-                  '```',
+                  stepSections.join('\n\n'),
                   '',
                   '</details>',
                 ].join('\n'));
               }
+
               if (sections.length) {
-                detailsBlock = ['### Resumo dos erros', '', sections.join('\n\n')].join('\n');
+                detailsBlock = ['### Detalhe dos erros', '', sections.join('\n\n')].join('\n');
               }
             }
 

@@ -97,6 +97,14 @@ on:
       SMTP_PASSWORD:        { required: false }
       SMTP_FROM:            { required: false }
 
+    outputs:
+      image-ref:
+        description: 'Referencia completa da imagem (registry/name:tag).'
+        value: ${{ jobs.pipeline.outputs.image-ref }}
+      build-pushed:
+        description: 'true se build-push completou com sucesso (caller usa pra rodar gitops mesmo com CI red).'
+        value: ${{ jobs.pipeline.outputs.build-pushed }}
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
