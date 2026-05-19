@@ -31,7 +31,7 @@ permissions:
 
 jobs:
   ci:
-    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.6.3
+    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.6.4
     secrets: inherit
     with:
       # image-name = <repo>-<env>.
@@ -53,7 +53,7 @@ jobs:
 
       node-version: '22'
       package-manager: 'pnpm'
-      pnpm-version: '9'
+      # pnpm-version: '9'   # opcional; default vazio = lê de package.json#packageManager. Setar conflita se já tem packageManager.
       lint-command: 'pnpm lint'
       typecheck-command: 'pnpm tsc --noEmit'
       test-command: 'pnpm test'
@@ -83,7 +83,7 @@ jobs:
       )
     runs-on: ubuntu-latest
     steps:
-      - uses: widesoftware-dev/github-workflows/.github/actions/gitops-bump@v1.6.3
+      - uses: widesoftware-dev/github-workflows/.github/actions/gitops-bump@v1.6.4
         with:
           gitops-repo: 'org/microservice-ops'
           app-id: ${{ vars.APP_ID }}

@@ -30,10 +30,10 @@ on:
         type: string
         default: 'yarn'
       pnpm-version:
-        description: 'Versao do pnpm (so usado quando package-manager=pnpm).'
+        description: 'Versao do pnpm. Vazio (default) = pnpm/action-setup le de package.json#packageManager. Setar APENAS se o repo nao tem packageManager — conflito explicito gera erro.'
         required: false
         type: string
-        default: '9'
+        default: ''
       install-command:
         description: 'Comando de install. Vazio = decide pelo package-manager (yarn install --immutable / npm ci / pnpm install --frozen-lockfile).'
         required: false
@@ -115,8 +115,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        if: inputs.package-manager == 'pnpm'
+      # Sem version: pnpm/action-setup le de package.json#packageManager.
+      - name: Setup pnpm (from packageManager)
+        if: inputs.package-manager == 'pnpm' && inputs.pnpm-version == ''
+        uses: pnpm/action-setup@v4
+
+      # Com version: override explicito. Conflita com packageManager se ambos setados.
+      - name: Setup pnpm (with version)
+        if: inputs.package-manager == 'pnpm' && inputs.pnpm-version != ''
         uses: pnpm/action-setup@v4
         with:
           version: ${{ inputs.pnpm-version }}
@@ -178,8 +184,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        if: inputs.package-manager == 'pnpm'
+      # Sem version: pnpm/action-setup le de package.json#packageManager.
+      - name: Setup pnpm (from packageManager)
+        if: inputs.package-manager == 'pnpm' && inputs.pnpm-version == ''
+        uses: pnpm/action-setup@v4
+
+      # Com version: override explicito. Conflita com packageManager se ambos setados.
+      - name: Setup pnpm (with version)
+        if: inputs.package-manager == 'pnpm' && inputs.pnpm-version != ''
         uses: pnpm/action-setup@v4
         with:
           version: ${{ inputs.pnpm-version }}
@@ -226,8 +238,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        if: inputs.package-manager == 'pnpm'
+      # Sem version: pnpm/action-setup le de package.json#packageManager.
+      - name: Setup pnpm (from packageManager)
+        if: inputs.package-manager == 'pnpm' && inputs.pnpm-version == ''
+        uses: pnpm/action-setup@v4
+
+      # Com version: override explicito. Conflita com packageManager se ambos setados.
+      - name: Setup pnpm (with version)
+        if: inputs.package-manager == 'pnpm' && inputs.pnpm-version != ''
         uses: pnpm/action-setup@v4
         with:
           version: ${{ inputs.pnpm-version }}
@@ -274,8 +292,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        if: inputs.package-manager == 'pnpm'
+      # Sem version: pnpm/action-setup le de package.json#packageManager.
+      - name: Setup pnpm (from packageManager)
+        if: inputs.package-manager == 'pnpm' && inputs.pnpm-version == ''
+        uses: pnpm/action-setup@v4
+
+      # Com version: override explicito. Conflita com packageManager se ambos setados.
+      - name: Setup pnpm (with version)
+        if: inputs.package-manager == 'pnpm' && inputs.pnpm-version != ''
         uses: pnpm/action-setup@v4
         with:
           version: ${{ inputs.pnpm-version }}
