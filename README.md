@@ -442,6 +442,32 @@ Renovate abre PR a cada nova tag publicada.
 | `syntax error: unexpected "("` dentro do Semgrep | Reusable < `v1.3.1` usando array bash em container `sh` | Bumpar pin pra `v1.3.1`+ |
 | `gitops-bump` falha com "kustomization nao encontrado" | Path no GitOps repo não bate com `gitops-path-template` resolvido | Criar `<repo>-prod/kustomization.yaml` e `<repo>-homolog/kustomization.yaml` no GitOps repo, com `newName` apontando pro path duplo |
 
+## 12. Proteção da main (prompt de referência)
+
+Prompt pronto pra colar no Claude Code dentro de um repo cliente. Configura ruleset na `main` e adiciona `CODEOWNERS` na raiz:
+
+```
+Vamos proteger a main seguindo os workflows. Utilize Ruleset
+
+PR só pode ser aprovado após finalizar a build e estar tudo verde
+
+PR na main precisa de pelo menos 1 reviewer
+
+Team @admin da org podem forçar aprovar PR
+
+Além disso mande para a main/master o CODEOWNERS.md:
+# CODEOWNERS — review obrigatorio por area.
+#
+# Sem regra `*` proposital: PRs em codigo da app (src/, blockchain/, etc.)
+# podem ser aprovados por qualquer membro do time.
+#
+# A pasta .github/ (workflows, templates, este arquivo) so e alterada
+# com aprovacao de quem mantem o pipeline e a governanca.
+/.github/ @throdines @shdacosta
+
+Me pergunte algo se precisar
+```
+
 ---
 
 Dúvidas ou propostas de mudança: abrir issue ou PR neste repositório.
