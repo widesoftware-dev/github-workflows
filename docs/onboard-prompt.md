@@ -54,8 +54,10 @@ Inspecione o repo e detecte:
    - **Cargo audit**: `cargo audit` ou `Cargo.lock` em subdiretórios → setar `cargo-audit-paths`.
    - **GitOps bump**: se existe um `on_release.yml` (ou step) que faz `actions/create-github-app-token` + checkout de outro repo + `yq` em kustomization, capture:
      - `gitops-repo` (do `repository:` do checkout)
-     - `gitops-app-id-var` (var referenciada em `app-id:`, default `APP_ID`)
+     - `app-id` (variable referenciada, geralmente `vars.APP_ID`)
+     - `app-private-key` (secret referenciada, geralmente `secrets.APP_PRIVATE_KEY`)
      - Estrutura de path do kustomization atual (compare com `{repo}-{env}/kustomization.yaml`)
+     - **A geração desse job NÃO vai pro reusable workflow** — usa a composite action `widesoftware-dev/github-workflows/.github/actions/gitops-bump` em um job próprio do caller (a restrição cross-org de org secrets em reusable workflows não afeta composite actions).
 
 6. **Image name base**: `github.event.repository.name` (resolvido em runtime no ci.yml; não hardcode).
 
@@ -134,21 +136,36 @@ jobs:
       gcp-workload-identity-provider: '<resolved>'
       gcp-service-account: '<resolved>'
 
-      # gitops-bump (se detectado on_release com bump)
-      gitops-bump-enabled: true
-      gitops-repo: '<resolved>'
-      gitops-bump-on: 'both'
-      gitops-path-template: '{repo}-{env}/kustomization.yaml'
-      gitops-app-id-var: 'APP_ID'
-
       notify-channel: none
+
+  # GitOps bump (se detectado on_release com bump no CI legado).
+  # Composite action em job proprio porque reusable workflow cross-org
+  # nao recebe organization secrets.
+  gitops:
+    needs: ci
+    if: |
+      always() &&
+      needs.ci.result == 'success' &&
+      (
+        startsWith(github.ref, 'refs/tags/v') ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/homolog')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: widesoftware-dev/github-workflows/.github/actions/gitops-bump@<TAG>
+        with:
+          gitops-repo: '<resolved>'
+          app-id: ${{ vars.APP_ID }}
+          app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          image-name: <expression mesmo do job ci>
+          image-tag: <expression mesmo do job ci>
 ```
 
 **Regras invariantes**:
 - `uses:` sempre pinado em `@vX.Y.Z`. Nunca `@main`.
 - Bloco `permissions:` sempre presente. Caller é teto pro reusable.
 - `secrets:` explícito sempre que precisar de org secret cross-org.
-- Quando `gitops-bump-enabled: true`, **OBRIGATÓRIO** passar `GITOPS_APP_PRIVATE_KEY` no `secrets:` map.
+- **NÃO usar gitops-bump dentro do reusable workflow** — extraído pra composite action a partir de `v1.5.0`. Gere como job próprio do caller (visto acima).
 - **Não setar** `dockerfile-target` por default — stages parciais frequentemente não compilam standalone (especialmente Nest). Ative só se o cliente confirmar que a stage roda isolada.
 
 **Saída — onde criar**:
@@ -161,8 +178,8 @@ jobs:
 **Antes** de declarar pronto, verifique (via `gh api`):
 
 1. **Variables/secrets no repo** (org-level OK):
-   - `gh api /repos/<owner>/<repo>/actions/organization-variables` deve incluir a variable referenciada por `gitops-app-id-var` (default `APP_ID`).
-   - `gh api /repos/<owner>/<repo>/actions/organization-secrets` deve incluir `GITOPS_APP_PRIVATE_KEY` (se gitops-bump habilitado).
+   - `gh api /repos/<owner>/<repo>/actions/organization-variables` deve incluir a variable referenciada por `app-id` (geralmente `APP_ID`).
+   - `gh api /repos/<owner>/<repo>/actions/organization-secrets` deve incluir o secret referenciado por `app-private-key` (geralmente `APP_PRIVATE_KEY`). **Composite action enxerga secret org normalmente** — só reusable workflow cross-org tem o gargalo.
    - Se faltar: pare e peça ao usuário criar antes de mergear.
 
 2. **Kustomizations no GitOps repo** (se gitops-bump habilitado):
@@ -199,7 +216,7 @@ Ao bumpar a tag do reusable ou adicionar novos inputs:
 Hard-won lessons codificados acima:
 
 1. **Caller permissions block é obrigatório**. Reusable só pode estreitar; ausente, `startup_failure` em segundos.
-2. **`secrets: inherit` não propaga organization secrets cross-org**. Use `secrets: { NAME: ${{ secrets.NAME }} }`.
+2. **Reusable workflows cross-org não recebem organization secrets**, nem via `secrets: inherit` nem via mapping explícito. Pra tarefas que precisam de org secret (ex: GitOps bump com GitHub App), usar **composite action** chamada em job próprio do caller.
 3. **Bash arrays não rodam em `sh`** (container Semgrep usa Alpine sh). Reusable usa `set --` POSIX desde v1.3.1.
 4. **Stage parcial do Dockerfile (`dockerfile-target`) pode não compilar standalone**. Default seguro: omitir.
 5. **Jobs paralelos > sequenciais**. `node.yml@v1.3.0+` quebra `audit/lint/typecheck/test` em jobs separados pra falhas não mascararem umas às outras.

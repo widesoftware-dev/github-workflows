@@ -115,14 +115,44 @@ Núcleo do pipeline. Pode ser chamado direto (sem testes de linguagem) ou via os
 | `gcp-workload-identity-provider` | string | `''` | WIF provider full path. Só `gcp-wif` |
 | `gcp-service-account` | string | `''` | Email da SA GCP. Só `gcp-wif` |
 | `cargo-audit-paths` | string | `''` | Diretórios com `Cargo.lock` separados por vírgula (ex: `blockchain`). Roda `cargo audit` em cada. Pula se vazio |
-| `gitops-bump-enabled` | boolean | `false` | Liga o job que atualiza um kustomization em outro repo de ops (estilo ArgoCD pull-based) |
-| `gitops-bump-on` | string | `both` | `tag` (só v*), `homolog` (só push em homolog) ou `both` |
-| `gitops-repo` | string | `''` | `owner/name` do repo de ops (ex: `org/microservice-ops`) |
-| `gitops-path-template` | string | `{repo}-{env}/kustomization.yaml` | Path do kustomization. Placeholders `{repo}` e `{env}` (`prod`/`homolog`) |
-| `gitops-app-id-var` | string | `APP_ID` | Nome da Actions Variable contendo o App ID; o reusable lê via `vars[<nome>]` |
-| `gitops-commit-message-template` | string | `chore({repo}): update {env} image to {tag}` | Mensagem do commit. Placeholders `{repo}`, `{env}`, `{tag}` |
 
-Secret extra quando `gitops-bump-enabled: true`: `GITOPS_APP_PRIVATE_KEY` (private key do GitHub App).
+### GitOps bump — composite action
+
+A partir de `v1.5.0`, o GitOps bump **não vive mais dentro do reusable workflow**. Foi extraído pra uma **composite action** chamada pelo caller em um job próprio:
+
+```yaml
+jobs:
+  ci:
+    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.5.0
+    ...
+  gitops:
+    needs: ci
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/homolog') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: widesoftware-dev/github-workflows/.github/actions/gitops-bump@v1.5.0
+        with:
+          gitops-repo: 'mkclub69/mk-microservice-ops'
+          app-id: ${{ vars.APP_ID }}
+          app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          image-name: <expression>
+          image-tag: <expression>
+```
+
+**Por quê separar**: reusable workflows em outra organização **não recebem organization secrets** do caller (mesmo com `secrets: inherit` ou mapping explícito). Composite actions rodam no mesmo job do caller, então a private key flui normal como input. Veja `examples/consumer-nestjs.yml` pro template completo.
+
+Inputs da composite action:
+
+| Input | Default | Notes |
+|---|---|---|
+| `gitops-repo` | (req.) | `owner/name` |
+| `app-id` | (req.) | GitHub App ID |
+| `app-private-key` | (req.) | Private key PEM (passar via `${{ secrets.X }}`) |
+| `image-name` | (req.) | Pode ter sufixo `-prod`/`-homolog`; o action tira pra derivar `{repo}` |
+| `image-tag` | (req.) | Valor que vai no `newTag` |
+| `path-template` | `{repo}-{env}/kustomization.yaml` | placeholders `{repo}` `{env}` |
+| `commit-message-template` | `chore({repo}): update {env} image to {tag}` | placeholders `{repo}` `{env}` `{tag}` |
+| `env-override` | `''` | Força `prod` ou `homolog`; vazio = deriva do `github.ref` |
 
 Secrets necessários (definidos no repo consumidor):
 
@@ -199,24 +229,16 @@ permissions:
 
 Esse bloco está em todos os `examples/consumer-*.yml`.
 
-## ⚠️ Secrets cross-org: `secrets: inherit` não basta
+## ⚠️ Secrets cross-org: reusable workflows não recebem org secrets
 
-`secrets: inherit` **não propaga organization secrets** quando o reusable workflow vive em uma org diferente da do caller. O caller precisa **passar explicitamente** cada org secret que o reusable usar:
+Reusable workflows em outra organização **não recebem organization secrets** do caller, **nem via `secrets: inherit` nem via mapping explícito**. Variables (`vars.*`) e repo-level secrets fluem; org secrets não.
 
-```yaml
-jobs:
-  ci:
-    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.4.1
-    secrets:
-      GITOPS_APP_PRIVATE_KEY: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
-      # SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
-      # REGISTRY_USERNAME:  ${{ secrets.REGISTRY_USERNAME }}
-      # REGISTRY_PASSWORD:  ${{ secrets.REGISTRY_PASSWORD }}
-      # SMTP_HOST:          ${{ secrets.SMTP_HOST }}
-      # ...
-```
+Casos onde isso bate:
+- `REGISTRY_USERNAME`/`REGISTRY_PASSWORD` (auth-method `docker-login`): se forem org secrets, copiar pro repo do caller.
+- `SLACK_WEBHOOK_URL`, `SMTP_*` (notifications): idem.
+- **GitHub App private key (GitOps bump)**: a forma correta é **NÃO usar o reusable workflow pra esse step** e sim a composite action `gitops-bump`, que roda no job do caller e enxerga qualquer secret normalmente. Veja `examples/consumer-nestjs.yml`.
 
-A `secrets.*` context dentro do caller resolve org secrets normalmente — só não os repassa via `inherit` em cenário cross-org. Variables (`vars.*`) seguem regras diferentes e funcionam com inherit. Repo-level secrets também passam normalmente.
+`secrets: inherit` continua útil pra repos same-org e pra repo-level secrets cross-org.
 
 ## Convenção de naming `-prod` / `-homolog`
 
@@ -382,7 +404,7 @@ Renovate abre PR a cada nova tag publicada.
 | `Permission denied: composer audit` falha em vuln conhecida sem patch | Dep transitiva sem versão segura | Setar `run-dependency-scan: false` temporariamente e abrir issue pra bump |
 | Workflow não encontra `base.yml` | Path errado ou versão ainda não taggeada | Pinar em tag que já existe (`v1.0.0`+) |
 | `actionlint` reclama de expressão | Sintaxe inválida em `if:` ou interpolação | Rodar `actionlint` local: `brew install actionlint && actionlint` |
-| `Error: Input required and not supplied: private-key` no `gitops-bump` | `secrets: inherit` não propagou org secret cross-org | Passar explicitamente — veja a seção "Secrets cross-org" |
+| `Error: Input required and not supplied: private-key` no `gitops-bump` | Reusable workflow cross-org não recebe org secrets — restrição confirmada do GitHub Actions | Não usar `gitops-bump` no reusable. Migrar pra composite action `gitops-bump` em job próprio do caller (v1.5.0+) |
 | `startup_failure` em segundos, sem nenhum job rodar | Caller sem bloco `permissions:`, ou reusable pede permission que o caller não concede | Garantir o bloco `permissions:` (em "Caller permissions"); incluir `id-token: write` se WIF, `actions: read` pro pr-report |
 | `syntax error: unexpected "("` dentro do Semgrep | Reusable < `v1.3.1` usando array bash em container `sh` | Bumpar pin pra `v1.3.1`+ |
 | `gitops-bump` falha com "kustomization nao encontrado" | Path no GitOps repo não bate com `gitops-path-template` resolvido | Criar `<repo>-prod/kustomization.yaml` e `<repo>-homolog/kustomization.yaml` no GitOps repo, com `newName` apontando pro path duplo |

@@ -178,40 +178,10 @@ on:
         type: string
         default: ''
 
-      # ----- GitOps bump (atualizar kustomization em repo de ops) ------------
-      # Quando habilitado, apos build-push em tag v* ou push em homolog, o
-      # reusable autentica via GitHub App, faz checkout do gitops-repo, bumpa
-      # images[].newTag no kustomization indicado e commita.
-      gitops-bump-enabled:
-        description: 'Liga o job de bump no GitOps repo.'
-        required: false
-        type: boolean
-        default: false
-      gitops-bump-on:
-        description: 'Quando bumpar: tag | homolog | both. Default both = tag v* ou push em homolog.'
-        required: false
-        type: string
-        default: 'both'
-      gitops-repo:
-        description: 'GitOps repo no formato owner/name (ex: mkclub69/mk-microservice-ops).'
-        required: false
-        type: string
-        default: ''
-      gitops-path-template:
-        description: 'Path do kustomization no GitOps repo. Placeholders: {repo} (image-name base) e {env} (prod|homolog). Default {repo}-{env}/kustomization.yaml.'
-        required: false
-        type: string
-        default: '{repo}-{env}/kustomization.yaml'
-      gitops-app-id-var:
-        description: 'Nome da Actions Variable que contem o App ID (ex: APP_ID). O reusable le via vars[<nome>].'
-        required: false
-        type: string
-        default: 'APP_ID'
-      gitops-commit-message-template:
-        description: 'Template do commit message. Placeholders: {repo}, {env}, {tag}.'
-        required: false
-        type: string
-        default: 'chore({repo}): update {env} image to {tag}'
+      # GitOps bump nao vive mais aqui — usar a composite action
+      # widesoftware-dev/github-workflows/.github/actions/gitops-bump@<tag>
+      # em um job proprio do caller. Reusable workflow cross-org nao recebe
+      # organization secrets, e composite actions sim (rodam no job do caller).
 
     # Secrets sao `required: false` no nivel do workflow porque alguns clientes
     # nao usam push (do-push: false) ou nao usam Slack/email. A validacao real
@@ -233,9 +203,6 @@ on:
         required: false
       SMTP_FROM:
         required: false
-      GITOPS_APP_PRIVATE_KEY:
-        required: false
-
     outputs:
       image-ref:
         description: 'Referencia completa da imagem (registry/name:tag). Util pro caller encadear jobs adicionais.'
@@ -615,133 +582,10 @@ jobs:
           path: trivy-image.txt
           retention-days: 15
 
-  # ===========================================================================
-  # 6b. GITOPS BUMP — atualiza kustomization no repo de ops.
-  # ---------------------------------------------------------------------------
-  # Gera token via GitHub App, faz checkout do gitops-repo, bumpa o newTag
-  # do kustomization indicado e commita. ArgoCD observa o ops repo e aplica.
-  #
-  # Acionado se gitops-bump-enabled E gitops-bump-on casa com o ref atual:
-  #   - tag      -> apenas em refs/tags/v*
-  #   - homolog  -> apenas em push pra refs/heads/homolog
-  #   - both     -> ambos (default)
-  #
-  # Placeholders no path-template e commit-message-template:
-  #   {repo}  = image-name (basename do servico)
-  #   {env}   = prod | homolog (derivado do ref)
-  #   {tag}   = image-tag resolvido pelo build-push
-  # ===========================================================================
-  gitops-bump:
-    name: GitOps bump
-    if: |
-      always() &&
-      inputs.gitops-bump-enabled &&
-      needs.build-push.result == 'success' &&
-      (
-        (inputs.gitops-bump-on == 'tag'     && startsWith(github.ref, 'refs/tags/v')) ||
-        (inputs.gitops-bump-on == 'homolog' && github.event_name == 'push' && github.ref == 'refs/heads/homolog') ||
-        (inputs.gitops-bump-on == 'both'    && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/homolog')))
-      )
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs:
-      - build-push
-      - container-scan
-    steps:
-      - name: Resolve env + paths
-        id: resolve
-        env:
-          PATH_TEMPLATE: ${{ inputs.gitops-path-template }}
-          COMMIT_TEMPLATE: ${{ inputs.gitops-commit-message-template }}
-          IMAGE_NAME: ${{ inputs.image-name }}
-          IMAGE_REF: ${{ needs.build-push.outputs.image-ref }}
-          GITOPS_REPO: ${{ inputs.gitops-repo }}
-        run: |
-          set -e
-          # env = prod (tag v*) | homolog (push homolog).
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            ENV="prod"
-            TAG="${GITHUB_REF_NAME}"
-          else
-            ENV="homolog"
-            TAG="${GITHUB_RUN_ID}"
-          fi
-
-          # image-name pode vir com sufixo -prod/-homolog (convencao Widesoftware).
-          # Pra derivar {repo}, tira esse sufixo se existir.
-          REPO_BASE="${IMAGE_NAME%-prod}"
-          REPO_BASE="${REPO_BASE%-homolog}"
-
-          PATH_VALUE="${PATH_TEMPLATE//\{repo\}/$REPO_BASE}"
-          PATH_VALUE="${PATH_VALUE//\{env\}/$ENV}"
-
-          MSG="${COMMIT_TEMPLATE//\{repo\}/$REPO_BASE}"
-          MSG="${MSG//\{env\}/$ENV}"
-          MSG="${MSG//\{tag\}/$TAG}"
-
-          # owner/name -> dois outputs separados pro create-github-app-token.
-          OWNER="${GITOPS_REPO%/*}"
-          NAME="${GITOPS_REPO#*/}"
-
-          {
-            echo "env=${ENV}"
-            echo "tag=${TAG}"
-            echo "repo-base=${REPO_BASE}"
-            echo "path=${PATH_VALUE}"
-            echo "commit-message=${MSG}"
-            echo "gitops-owner=${OWNER}"
-            echo "gitops-name=${NAME}"
-          } >> "$GITHUB_OUTPUT"
-
-          echo "Resolved: env=${ENV} tag=${TAG} path=${PATH_VALUE}"
-
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ vars[inputs.gitops-app-id-var] }}
-          private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
-          owner: ${{ steps.resolve.outputs.gitops-owner }}
-          repositories: ${{ steps.resolve.outputs.gitops-name }}
-
-      - name: Checkout ops repo
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.gitops-repo }}
-          token: ${{ steps.app-token.outputs.token }}
-          path: ops-repo
-
-      - name: Bump image tag in kustomization
-        env:
-          KUSTOMIZATION_PATH: ${{ steps.resolve.outputs.path }}
-          NEW_TAG: ${{ steps.resolve.outputs.tag }}
-        run: |
-          set -e
-          TARGET="ops-repo/${KUSTOMIZATION_PATH}"
-          if [ ! -f "$TARGET" ]; then
-            echo "::error::kustomization nao encontrado em ${TARGET}"
-            exit 1
-          fi
-          yq e -i ".images[].newTag = \"${NEW_TAG}\"" "${TARGET}"
-          echo "Updated ${TARGET}:"
-          yq e '.images' "${TARGET}"
-
-      - name: Commit and push to ops repo
-        env:
-          KUSTOMIZATION_PATH: ${{ steps.resolve.outputs.path }}
-          COMMIT_MSG: ${{ steps.resolve.outputs.commit-message }}
-        run: |
-          set -e
-          cd ops-repo
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name "github-actions[bot]"
-          git add "${KUSTOMIZATION_PATH}"
-          if git diff --cached --quiet; then
-            echo "::notice::Nenhuma mudanca no kustomization — newTag ja era ${NEW_TAG:-<unset>}."
-            exit 0
-          fi
-          git commit -m "${COMMIT_MSG}"
-          git push
+  # GitOps bump foi extraido pra uma composite action — chame
+  # widesoftware-dev/github-workflows/.github/actions/gitops-bump@<tag>
+  # em um job proprio do caller. Razao: reusable workflow cross-org nao
+  # recebe organization secrets do caller; composite action recebe.
 
   # ===========================================================================
   # 7. PR REPORT
@@ -761,7 +605,6 @@ jobs:
       - dependency-scan-rust
       - build-push
       - container-scan
-      - gitops-bump
     if: |
       always() &&
       inputs.pr-report &&
@@ -773,8 +616,7 @@ jobs:
         needs.vuln-scan-config.result == 'failure' ||
         needs.dependency-scan-rust.result == 'failure' ||
         needs.build-push.result == 'failure' ||
-        needs.container-scan.result == 'failure' ||
-        needs.gitops-bump.result == 'failure'
+        needs.container-scan.result == 'failure'
       )
     permissions:
       contents: read
@@ -864,7 +706,6 @@ jobs:
       - dependency-scan-rust
       - build-push
       - container-scan
-      - gitops-bump
     if: |
       always() &&
       inputs.notify-channel != 'none' &&
