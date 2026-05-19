@@ -80,6 +80,8 @@ on:
       notify-on:         { required: false, type: string, default: 'failure' }
       slack-channel:     { required: false, type: string, default: '' }
       email-to:          { required: false, type: string, default: '' }
+      docker-cache-mode: { required: false, type: string, default: 'gha' }
+      docker-cache-ref:  { required: false, type: string, default: '' }
       auth-method:                { required: false, type: string, default: 'docker-login' }
       gcp-workload-identity-provider: { required: false, type: string, default: '' }
       gcp-service-account:        { required: false, type: string, default: '' }
@@ -142,6 +144,19 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
           cache: ${{ inputs.package-manager }}
+
+      # Cacheia node_modules entre jobs e entre runs. Key = hash dos lockfiles.
+      # Restore parcial via restore-keys garante que install ainda valida quando
+      # o lockfile muda; cache miss completo ainda roda install do zero.
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            **/node_modules
+          key: node-modules-${{ runner.os }}-${{ inputs.package-manager }}-${{ hashFiles('**/pnpm-lock.yaml', '**/yarn.lock', '**/package-lock.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-${{ inputs.package-manager }}-
 
       - name: Install dependencies
         env:
@@ -278,6 +293,19 @@ jobs:
           node-version: ${{ inputs.node-version }}
           cache: ${{ inputs.package-manager }}
 
+      # Cacheia node_modules entre jobs e entre runs. Key = hash dos lockfiles.
+      # Restore parcial via restore-keys garante que install ainda valida quando
+      # o lockfile muda; cache miss completo ainda roda install do zero.
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            **/node_modules
+          key: node-modules-${{ runner.os }}-${{ inputs.package-manager }}-${{ hashFiles('**/pnpm-lock.yaml', '**/yarn.lock', '**/package-lock.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-${{ inputs.package-manager }}-
+
       - name: Install dependencies
         env:
           PM: ${{ inputs.package-manager }}
@@ -390,6 +418,19 @@ jobs:
           node-version: ${{ inputs.node-version }}
           cache: ${{ inputs.package-manager }}
 
+      # Cacheia node_modules entre jobs e entre runs. Key = hash dos lockfiles.
+      # Restore parcial via restore-keys garante que install ainda valida quando
+      # o lockfile muda; cache miss completo ainda roda install do zero.
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            **/node_modules
+          key: node-modules-${{ runner.os }}-${{ inputs.package-manager }}-${{ hashFiles('**/pnpm-lock.yaml', '**/yarn.lock', '**/package-lock.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-${{ inputs.package-manager }}-
+
       - name: Install dependencies
         env:
           PM: ${{ inputs.package-manager }}
@@ -501,6 +542,19 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
           cache: ${{ inputs.package-manager }}
+
+      # Cacheia node_modules entre jobs e entre runs. Key = hash dos lockfiles.
+      # Restore parcial via restore-keys garante que install ainda valida quando
+      # o lockfile muda; cache miss completo ainda roda install do zero.
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            **/node_modules
+          key: node-modules-${{ runner.os }}-${{ inputs.package-manager }}-${{ hashFiles('**/pnpm-lock.yaml', '**/yarn.lock', '**/package-lock.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-${{ inputs.package-manager }}-
 
       - name: Install dependencies
         env:
@@ -631,6 +685,8 @@ jobs:
       notify-on:           ${{ inputs.notify-on }}
       slack-channel:       ${{ inputs.slack-channel }}
       email-to:            ${{ inputs.email-to }}
+      docker-cache-mode:   ${{ inputs.docker-cache-mode }}
+      docker-cache-ref:    ${{ inputs.docker-cache-ref }}
       auth-method:                    ${{ inputs.auth-method }}
       gcp-workload-identity-provider: ${{ inputs.gcp-workload-identity-provider }}
       gcp-service-account:            ${{ inputs.gcp-service-account }}
