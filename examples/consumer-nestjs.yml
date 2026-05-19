@@ -27,12 +27,11 @@ permissions:
   contents: read
   id-token: write       # required when auth-method: gcp-wif
   pull-requests: write  # required for pr-report comments
-  packages: write       # required to push to ghcr.io (drop if not using)
   actions: read         # required to read run metadata in pr-report (drop if pr-report is disabled)
 
 jobs:
   ci:
-    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.6.1
+    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.6.2
     secrets: inherit
     with:
       # image-name = <repo>-<env>.
@@ -84,7 +83,7 @@ jobs:
       )
     runs-on: ubuntu-latest
     steps:
-      - uses: widesoftware-dev/github-workflows/.github/actions/gitops-bump@v1.6.1
+      - uses: widesoftware-dev/github-workflows/.github/actions/gitops-bump@v1.6.2
         with:
           gitops-repo: 'org/microservice-ops'
           app-id: ${{ vars.APP_ID }}

@@ -168,7 +168,6 @@ jobs:
     secrets: inherit
     permissions:
       contents: read
-      packages: write
       pull-requests: write
       id-token: write
       actions: read         # required by the nested pr-report job in base.yml
