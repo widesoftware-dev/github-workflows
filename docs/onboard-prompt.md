@@ -75,7 +75,7 @@ Mostre ao usuário um **resumo em bullets** do que detectou. Marque com `?` qual
 - Confirmar tag do reusable se múltiplas opções viáveis (sugira a mais recente).
 - Confirmar `gitops-bump-enabled` se detectou `on_release.yml` com bump. Default sugerido: `true` (substitui o on_release legado).
 - Notificação: `none` | `slack` | `email` | `both`. Se algo além de `none`, peça canal/destinatários.
-- Quais scans desligar (default: nenhum). Pergunte só se o usuário pedir.
+- Quais scans desligar (default: nenhum). Pergunte só se o usuário pedir. **Gitleaks (`run-secrets-scan`) nunca é opcional** — falsos positivos viram allowlist em `.gitleaks.toml`, não desativação.
 - Convenção de sufixo `-prod`/`-homolog` no `image-name` e no path do registry? Default: **sim** (convenção Widesoftware atual). Se o cliente usa paths sem sufixo, ajustar o ci.yml gerado.
 
 Não pergunte nada que já tenha sido detectado.
@@ -167,6 +167,7 @@ jobs:
 - `secrets:` explícito sempre que precisar de org secret cross-org.
 - **NÃO usar gitops-bump dentro do reusable workflow** — extraído pra composite action a partir de `v1.5.0`. Gere como job próprio do caller (visto acima).
 - **Não setar** `dockerfile-target` por default — stages parciais frequentemente não compilam standalone (especialmente Nest). Ative só se o cliente confirmar que a stage roda isolada.
+- **Gitleaks é obrigatório**: sempre gere `run-secrets-scan: true` no `with:` (mesmo que seja o default — explícito facilita auditoria). **Nunca proponha desligar** mesmo em cliente legado. Falsos positivos resolvem via `.gitleaks.toml` (allowlist no repo do cliente), não desativando o scan.
 
 **Saída — onde criar**:
 - Se NÃO existe `.github/workflows/ci.yml`: crie como `.github/workflows/ci.yml`.
