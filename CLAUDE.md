@@ -58,6 +58,18 @@ Slack sem `SLACK_WEBHOOK_URL` → log de warning, `exit 0`. SMTP sem `SMTP_HOST`
 ### Examples sempre pinados
 `examples/consumer-*.yml` referenciam `widesoftware-dev/github-workflows/...@vX.Y.Z`. Nunca `@main` ou SHA. Self-test bloqueia.
 
+### Caller permissions + secrets cross-org
+Todo example tem bloco `permissions:` no nível do workflow (caller é teto pro reusable; reusable só estreita). Pra reusable em outra org, `secrets: inherit` **não propaga org secrets** — passar explicitamente os secrets necessários (`secrets: { NAME: ${{ secrets.NAME }} }`).
+
+### Convenção de naming `-prod` / `-homolog`
+Padrão pra clientes Widesoftware: `image-name` e path do registry recebem sufixo do env (`<repo>-prod`, `<repo>-homolog`). `gitops-bump` resolve `{env}` automaticamente. GitOps repo precisa ter dois diretórios separados (`<repo>-prod/`, `<repo>-homolog/`), com `images[].newName` apontando pro path duplo (`<host>/<project>/<repo>-{env}/<repo>-{env}`).
+
+### Sem `dockerfile-target` por default
+Stages parciais (`node-builder`, `deps`, etc.) frequentemente não compilam standalone fora da cadeia multi-stage. Default seguro: omitir o input e buildar a imagem inteira. Habilitar só se o cliente confirmar que a stage roda isolada.
+
+### Shell padrão de step em container é `sh` POSIX
+Steps que usam `container:` rodam em `sh` (Alpine), não bash. **Arrays bash** (`x=()`, `x+=(...)`, `"${x[@]}"`) quebram. Usar `set --` POSIX (ver job `sast` em `base.yml`).
+
 ## Comandos comuns
 
 ### Validar workflows local antes de pushar
