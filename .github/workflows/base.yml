@@ -242,7 +242,6 @@ jobs:
     timeout-minutes: 5
     # Quando block-on-failure=false, marca o job como "success" mesmo se falhar.
     # Assim build-push consegue rodar adiante em homolog.
-    continue-on-error: ${{ !inputs.block-on-failure }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -278,7 +277,6 @@ jobs:
     if: inputs.run-sast
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: ${{ !inputs.block-on-failure }}
     container:
       image: semgrep/semgrep
     steps:
@@ -319,7 +317,6 @@ jobs:
     if: inputs.run-vuln-scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: ${{ !inputs.block-on-failure }}
     steps:
       - uses: actions/checkout@v6
 
@@ -354,7 +351,6 @@ jobs:
     if: inputs.run-vuln-scan
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    continue-on-error: ${{ !inputs.block-on-failure }}
     steps:
       - uses: actions/checkout@v6
 
@@ -390,7 +386,6 @@ jobs:
     if: inputs.run-dependency-scan && inputs.cargo-audit-paths != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    continue-on-error: ${{ !inputs.block-on-failure }}
     steps:
       - uses: actions/checkout@v6
 
@@ -423,7 +418,7 @@ jobs:
   # 5. BUILD & PUSH
   # ---------------------------------------------------------------------------
   # Depende dos scans anteriores. O `if:` decide se roda:
-  #   block-on-failure=false -> sempre roda (gates virtuais por continue-on-error)
+  #   block-on-failure=false -> sempre roda (independente do resultado dos scans)
   #   block-on-failure=true  -> so roda se todos scans terminaram success/skipped
   #
   # Cache do GHA scopado por nome de imagem evita conflito entre projetos.
@@ -538,7 +533,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: build-push
-    continue-on-error: ${{ !inputs.block-on-failure }}
     steps:
       - uses: actions/checkout@v6
 

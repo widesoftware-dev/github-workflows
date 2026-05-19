@@ -112,7 +112,6 @@ jobs:
     if: inputs.run-dependency-scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: ${{ !inputs.block-on-failure }}
     steps:
       - uses: actions/checkout@v4
 
@@ -176,7 +175,6 @@ jobs:
     if: inputs.lint-command != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: ${{ !inputs.block-on-failure }}
     steps:
       - uses: actions/checkout@v4
 
@@ -225,7 +223,6 @@ jobs:
     if: inputs.typecheck-command != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: ${{ !inputs.block-on-failure }}
     steps:
       - uses: actions/checkout@v4
 
@@ -274,7 +271,6 @@ jobs:
     if: inputs.test-command != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    continue-on-error: ${{ !inputs.block-on-failure }}
     steps:
       - uses: actions/checkout@v4
 
