@@ -635,6 +635,7 @@ jobs:
             const fs = require('fs');
             const { owner, repo } = context.repo;
             const runId = context.runId;
+
             const results = {
               'Secrets scan':    process.env.SECRETS_RESULT,
               'SAST':            process.env.SAST_RESULT,
@@ -650,58 +651,129 @@ jobs:
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${runId}`;
             const rows = Object.entries(results)
               .map(([n, r]) => `| ${icon(r)} | **${n}** | \`${r}\` |`).join('\n');
-            const failed = Object.entries(results)
+            const failedNames = Object.entries(results)
               .filter(([, r]) => r === 'failure').map(([n]) => n);
-            const passed = Object.entries(results)
-              .filter(([, r]) => r === 'success').map(([n]) => n);
-            const hasFailure = failed.length > 0;
+            const passedCount = Object.entries(results)
+              .filter(([, r]) => r === 'success').length;
+            const hasFailure = failedNames.length > 0;
 
+            // ---- Extrai trechos de log dos jobs com failure ----------------
+            const TRUNCATE_LINES = 25;
+            const ERROR_PATTERNS = [
+              /^##\[error\]/i,
+              /\bERROR\b/,
+              /\bError:/,
+              /\bFAIL\b/,
+              /\bFAILED\b/,
+              /panic:/i,
+              /Exception/,
+              /Fatal error/i,
+              /not found/i,
+              /Process completed with exit code [^0]/,
+              /HIGH:|CRITICAL:/,
+              /--- FAIL:/,
+            ];
+            const STRIP_TIMESTAMP = /^\S+\s+\S+\s+\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s?/;
+
+            async function fetchJobSummary(jobId) {
+              try {
+                const res = await github.request(
+                  'GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs',
+                  { owner, repo, job_id: jobId, request: { redirect: 'follow' } }
+                );
+                const text = typeof res.data === 'string'
+                  ? res.data
+                  : Buffer.from(res.data).toString('utf8');
+                const lines = text.split('\n')
+                  .map(l => l.replace(STRIP_TIMESTAMP, '').trim())
+                  .filter(Boolean);
+                const matched = lines.filter(l =>
+                  ERROR_PATTERNS.some(p => p.test(l))
+                );
+                const picked = (matched.length ? matched : lines).slice(-TRUNCATE_LINES);
+                return picked.join('\n').slice(0, 4000);
+              } catch (e) {
+                return `(falha ao buscar logs: ${e.message})`;
+              }
+            }
+
+            let detailsBlock = '';
+            if (hasFailure) {
+              const { data: { jobs } } = await github.rest.actions.listJobsForWorkflowRun({
+                owner, repo, run_id: runId, per_page: 100,
+              });
+              const failedJobs = jobs.filter(j => j.conclusion === 'failure');
+              const sections = [];
+              for (const job of failedJobs) {
+                const summary = await fetchJobSummary(job.id);
+                sections.push([
+                  '<details>',
+                  `<summary>❌ <strong>${job.name}</strong> — <a href="${job.html_url}">ver logs</a></summary>`,
+                  '',
+                  '```',
+                  summary || '(sem saída relevante)',
+                  '```',
+                  '',
+                  '</details>',
+                ].join('\n'));
+              }
+              if (sections.length) {
+                detailsBlock = ['### Resumo dos erros', '', sections.join('\n\n')].join('\n');
+              }
+            }
+
+            // ---- Monta corpo (mesmo conteudo no Step Summary e no PR) ----
             const header = hasFailure
-              ? `## ❌ CI falhou — ${failed.length} job(s) com erro`
+              ? `## ❌ CI falhou — ${failedNames.length} job(s) com erro`
               : '## ✅ CI verde';
             const sha7 = context.sha.substring(0, 7);
-            const lines = [
+            const bodyLines = [
               header,
               '',
-              `Commit \`${sha7}\` · [ver run](${runUrl})`,
+              `Commit \`${sha7}\` · [ver run completo](${runUrl})`,
               '',
-              hasFailure ? `**Jobs com falha:** ${failed.map(n => `\`${n}\``).join(', ')}` : `**Todos os jobs passaram** (${passed.length} verde${passed.length === 1 ? '' : 's'}).`,
+              hasFailure
+                ? `**Jobs com falha:** ${failedNames.map(n => `\`${n}\``).join(', ')}`
+                : `**Todos os jobs passaram** (${passedCount} verde${passedCount === 1 ? '' : 's'}).`,
               '',
               '| | Job | Resultado |',
               '|---|---|---|',
               rows,
-            ];
+              '',
+              detailsBlock,
+            ].filter(Boolean);
 
-            // Step Summary — visivel em qualquer evento.
-            const summary = lines.join('\n') + '\n';
-            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+            // ---- Step Summary (sempre, em qualquer evento) ---------------
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, bodyLines.join('\n') + '\n');
 
-            // Comentario no PR — so em pull_request event.
+            // ---- Comentario no PR (so em pull_request) -------------------
             if (context.eventName !== 'pull_request') {
-              core.info('Nao e um PR event — pulando comentario, report ficou no step summary.');
+              core.info('Nao e um PR event — comentario pulado; report no step summary.');
               return;
             }
 
             const marker = '<!-- ci-report -->';
-            const body = [
+            const commentBody = [
               marker,
-              ...lines,
+              ...bodyLines,
               '',
-              '<sub>Comentário gerado por `widesoftware-dev/github-workflows`.</sub>',
+              '<sub>Comentário atualizado automaticamente por `widesoftware-dev/github-workflows`.</sub>',
             ].join('\n');
 
             const { data: comments } = await github.rest.issues.listComments({
               owner, repo, issue_number: context.issue.number, per_page: 100,
             });
-            // Aceita o marker novo e o antigo (compat com runs pre-v1.6).
-            const existing = comments.find(c => c.body && (c.body.includes(marker) || c.body.includes('<!-- ci-failure-report -->')));
+            // Aceita o marker novo e o legado (pre-v1.6).
+            const existing = comments.find(c =>
+              c.body && (c.body.includes(marker) || c.body.includes('<!-- ci-failure-report -->'))
+            );
             if (existing) {
               await github.rest.issues.updateComment({
-                owner, repo, comment_id: existing.id, body,
+                owner, repo, comment_id: existing.id, body: commentBody,
               });
             } else {
               await github.rest.issues.createComment({
-                owner, repo, issue_number: context.issue.number, body,
+                owner, repo, issue_number: context.issue.number, body: commentBody,
               });
             }
 
