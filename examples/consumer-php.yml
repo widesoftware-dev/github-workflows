@@ -31,7 +31,7 @@ jobs:
   ci:
     # Pinar em tag semver — nunca @main em producao.
     # Bumps automaticos: configure Renovate ou Dependabot pra este `uses:`.
-    uses: widesoftware-dev/github-workflows/.github/workflows/php.yml@v1.6.0
+    uses: widesoftware-dev/github-workflows/.github/workflows/php.yml@v1.6.1
     secrets: inherit
     with:
       # ----- obrigatorios ---------------------------------------------------
