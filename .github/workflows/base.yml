@@ -111,11 +111,6 @@ on:
         required: false
         type: boolean
         default: true
-      run-container-scan:
-        description: 'Roda Trivy image scan na imagem buildada.'
-        required: false
-        type: boolean
-        default: true
 
       # ----- Semgrep ----------------------------------------------------------
       semgrep-configs:
@@ -171,12 +166,10 @@ on:
         type: string
         default: ''
 
-      # ----- dependency scan extra (Rust/CosmWasm) ---------------------------
-      cargo-audit-paths:
-        description: 'Diretorios com Cargo.lock pra rodar cargo audit, separados por virgula. Vazio = pula. Util pra monorepos Node+Rust (ex: blockchain).'
-        required: false
-        type: string
-        default: ''
+      # Cargo audit foi extraido pra composite action — chame
+      # widesoftware-dev/github-workflows/.github/actions/cargo-audit@<tag>
+      # em um job proprio do caller. Razao: so monorepos com Rust precisam,
+      # e job skipped no reusable poluia a sidebar de todos os outros.
 
       # GitOps bump nao vive mais aqui — usar a composite action
       # widesoftware-dev/github-workflows/.github/actions/gitops-bump@<tag>
@@ -562,103 +555,6 @@ jobs:
         run: exit 1
 
   # ===========================================================================
-  # 4b. DEPENDENCY SCAN RUST — cargo audit
-  # ---------------------------------------------------------------------------
-  # Pulado quando cargo-audit-paths esta vazio (default). Util pra monorepos
-  # Node+Rust (ex: NestJS app com diretorio blockchain/CosmWasm), onde o
-  # dependency scan principal so cobre o Node side.
-  # ===========================================================================
-  dependency-scan-rust:
-    name: Dependency scan (cargo audit)
-    if: inputs.run-dependency-scan && inputs.cargo-audit-paths != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v6
-
-      # Cache do advisory-db do RustSec, invalidado por hash dos Cargo.lock
-      # informados. Reduz tempo de cold run de ~30s pra <5s.
-      - name: Cache cargo advisory db
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/advisory-db
-          key: cargo-advisory-db-v1
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-
-      - name: Run cargo audit
-        id: scan
-        continue-on-error: true
-        env:
-          PATHS: ${{ inputs.cargo-audit-paths }}
-        run: |
-          set +e
-          : > cargo-audit.log
-          FAIL=0
-          IFS=',' read -ra DIRS <<< "$PATHS"
-          for dir in "${DIRS[@]}"; do
-            dir=$(echo "$dir" | xargs)
-            [ -z "$dir" ] && continue
-            echo "::group::cargo audit em $dir"
-            (cd "$dir" && cargo audit) 2>&1 | tee -a cargo-audit.log
-            S="${PIPESTATUS[0]}"
-            [ "$S" -ne 0 ] && FAIL=1
-            echo "::endgroup::"
-          done
-          exit "$FAIL"
-
-      - name: Render summary
-        if: always()
-        run: |
-          set +e
-          {
-            echo "## Cargo audit"
-            echo ""
-            if [ "${{ steps.scan.outcome }}" = "success" ]; then
-              echo "Nenhuma vulnerabilidade conhecida em \`${{ inputs.cargo-audit-paths }}\`."
-            else
-              echo "**Vulnerabilidades em \`${{ inputs.cargo-audit-paths }}\`.** Trecho final:"
-              echo ""
-              echo '```'
-              tail -50 cargo-audit.log
-              echo '```'
-            fi
-            echo ""
-            echo "> Artifact: \`cargo-audit-log\`"
-          } > details.md
-          cat details.md >> "$GITHUB_STEP_SUMMARY"
-          STATUS=success
-          [ "${{ steps.scan.outcome }}" = "failure" ] && STATUS=failure
-          jq -n \
-            --arg tool "Cargo audit" \
-            --arg status "$STATUS" \
-            --arg summary "$([ "$STATUS" = "success" ] && echo 'limpo' || echo 'vulns encontradas')" \
-            --rawfile details details.md \
-            '{tool: $tool, status: $status, summary: $summary, details: $details}' \
-            > counts-cargo-audit.json
-
-      - name: Upload log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cargo-audit-log
-          path: cargo-audit.log
-          retention-days: 15
-
-      - name: Upload counts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: counts-cargo-audit
-          path: counts-cargo-audit.json
-          retention-days: 7
-
-      - name: Propagate status
-        if: always() && steps.scan.outcome == 'failure'
-        run: exit 1
-
-  # ===========================================================================
   # 5. BUILD & PUSH
   # ---------------------------------------------------------------------------
   # Depende dos scans anteriores. O `if:` decide se roda:
@@ -678,7 +574,6 @@ jobs:
       - sast
       - vuln-scan-fs
       - vuln-scan-config
-      - dependency-scan-rust
     if: |
       always() &&
       (
@@ -687,8 +582,7 @@ jobs:
           (needs.secrets-scan.result == 'success' || needs.secrets-scan.result == 'skipped') &&
           (needs.sast.result == 'success'         || needs.sast.result == 'skipped') &&
           (needs.vuln-scan-fs.result == 'success' || needs.vuln-scan-fs.result == 'skipped') &&
-          (needs.vuln-scan-config.result == 'success' || needs.vuln-scan-config.result == 'skipped') &&
-          (needs.dependency-scan-rust.result == 'success' || needs.dependency-scan-rust.result == 'skipped')
+          (needs.vuln-scan-config.result == 'success' || needs.vuln-scan-config.result == 'skipped')
         )
       )
     outputs:
@@ -782,7 +676,7 @@ jobs:
   # ===========================================================================
   container-scan:
     name: Container scan
-    if: inputs.run-container-scan && needs.build-push.result == 'success'
+    if: needs.build-push.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: build-push
@@ -903,7 +797,6 @@ jobs:
       - sast
       - vuln-scan-fs
       - vuln-scan-config
-      - dependency-scan-rust
       - build-push
       - container-scan
     if: always() && inputs.pr-report
@@ -1047,7 +940,6 @@ jobs:
       - sast
       - vuln-scan-fs
       - vuln-scan-config
-      - dependency-scan-rust
       - build-push
       - container-scan
     if: |

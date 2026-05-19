@@ -30,7 +30,7 @@ jobs:
   ci:
     # Pinar em tag semver — nunca @main em producao.
     # Bumps automaticos: configure Renovate ou Dependabot pra este `uses:`.
-    uses: widesoftware-dev/github-workflows/.github/workflows/php.yml@v1.7.1
+    uses: widesoftware-dev/github-workflows/.github/workflows/php.yml@v1.8.0
     secrets: inherit
     with:
       # ----- obrigatorios ---------------------------------------------------
@@ -57,7 +57,6 @@ jobs:
       # run-vuln-scan: true
       # run-sast: false             # legado, ainda nao passa Semgrep
       # run-dependency-scan: true
-      # run-container-scan: true
 
       # ----- notificacao ----------------------------------------------------
       notify-channel: slack           # none | slack | email | both

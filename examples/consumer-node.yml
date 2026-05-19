@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   ci:
-    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.7.1
+    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.8.0
     secrets: inherit
     with:
       # ----- obrigatorios ---------------------------------------------------
@@ -51,7 +51,6 @@ jobs:
       # run-vuln-scan: true
       # run-sast: true
       # run-dependency-scan: true
-      # run-container-scan: true
 
       # ----- notificacao ----------------------------------------------------
       notify-channel: slack

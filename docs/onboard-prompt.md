@@ -51,7 +51,7 @@ Inspecione o repo e detecte:
      - Procure o host do registry em `docker/build-push-action.tags` (ex: `southamerica-east1-docker.pkg.dev/<project>/<repo>/...`).
    - **Branches**: `on.push.branches` e `on.pull_request.branches`. Note se há `homolog`.
    - **Semgrep configs**: linhas `--config p/...`.
-   - **Cargo audit**: `cargo audit` ou `Cargo.lock` em subdiretórios → setar `cargo-audit-paths`.
+   - **Cargo audit**: presença de `Cargo.lock` em subdiretórios → gere um job extra `cargo` chamando a composite action `widesoftware-dev/github-workflows/.github/actions/cargo-audit@<tag>` com `paths: '<diretórios>'`. **Sem Rust, não declare o job** (não vive mais no reusable a partir de v1.8.0).
    - **GitOps bump**: se existe um `on_release.yml` (ou step) que faz `actions/create-github-app-token` + checkout de outro repo + `yq` em kustomization, capture:
      - `gitops-repo` (do `repository:` do checkout)
      - `app-id` (variable referenciada, geralmente `vars.APP_ID`)
@@ -168,6 +168,9 @@ jobs:
 - **NÃO usar gitops-bump dentro do reusable workflow** — extraído pra composite action a partir de `v1.5.0`. Gere como job próprio do caller (visto acima).
 - **Não setar** `dockerfile-target` por default — stages parciais frequentemente não compilam standalone (especialmente Nest). Ative só se o cliente confirmar que a stage roda isolada.
 - **Gitleaks é obrigatório**: sempre gere `run-secrets-scan: true` no `with:` (mesmo que seja o default — explícito facilita auditoria). **Nunca proponha desligar** mesmo em cliente legado. Falsos positivos resolvem via `.gitleaks.toml` (allowlist no repo do cliente), não desativando o scan.
+- **Lint é obrigatório** (a partir de `v1.8.0`): `lint-command` é input `required: true`. Sempre passe o comando real do projeto (ex: `pnpm lint`, `yarn lint`, `npm run lint`, `vendor/bin/pint --test`). Não há mais opção de pular.
+- **Container scan é obrigatório** (a partir de `v1.8.0`): input `run-container-scan` foi removido. Sempre roda Trivy na imagem buildada.
+- **Cargo audit** (Rust) NÃO vive no reusable workflow. Foi extraído pra composite action `widesoftware-dev/github-workflows/.github/actions/cargo-audit`. Quando detectar `Cargo.lock` no repo, gere um job separado no `ci.yml` chamando a composite. Sem Rust, NÃO declare o job — assim ele nem aparece como skipped na sidebar.
 
 **Saída — onde criar**:
 - Se NÃO existe `.github/workflows/ci.yml`: crie como `.github/workflows/ci.yml`.
