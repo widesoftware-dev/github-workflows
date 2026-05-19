@@ -171,6 +171,8 @@ jobs:
 - **Lint é obrigatório** (a partir de `v1.8.0`): `lint-command` é input `required: true`. Sempre passe o comando real do projeto (ex: `pnpm lint`, `yarn lint`, `npm run lint`, `vendor/bin/pint --test`). Não há mais opção de pular.
 - **Container scan é obrigatório** (a partir de `v1.8.0`): input `run-container-scan` foi removido. Sempre roda Trivy na imagem buildada.
 - **Cargo audit** (Rust) NÃO vive no reusable workflow. Foi extraído pra composite action `widesoftware-dev/github-workflows/.github/actions/cargo-audit`. Quando detectar `Cargo.lock` no repo, gere um job separado no `ci.yml` chamando a composite. Sem Rust, NÃO declare o job — assim ele nem aparece como skipped na sidebar.
+- **Docker cache** (a partir de `v1.9.0`): default `docker-cache-mode: gha` é OK pra maioria. Quando o cliente tem volume alto de builds OU imagem grande, sugerir `docker-cache-mode: registry` — usa o próprio Artifact Registry (sem cap de 10GB, sem isolamento por branch, sem latência HTTPS). Sem mudança extra no caller: o ref default `<registry>/<image-name>-cache` resolve sozinho.
+- **node_modules cache** (a partir de `v1.9.0`): automático em todos os jobs paralelos do `node.yml`. Não precisa configurar nada no caller.
 
 **Saída — onde criar**:
 - Se NÃO existe `.github/workflows/ci.yml`: crie como `.github/workflows/ci.yml`.
