@@ -70,6 +70,19 @@ Stages parciais (`node-builder`, `deps`, etc.) frequentemente não compilam stan
 ### Shell padrão de step em container é `sh` POSIX
 Steps que usam `container:` rodam em `sh` (Alpine), não bash. **Arrays bash** (`x=()`, `x+=(...)`, `"${x[@]}"`) quebram. Usar `set --` POSIX (ver job `sast` em `base.yml`).
 
+### Lint, container scan, gitleaks são obrigatórios
+A partir de `v1.8.0`: `lint-command` é `required: true`; `run-container-scan` foi removido (sempre roda); gitleaks (`run-secrets-scan`) default `true` e **nunca desligar** — falsos positivos viram allowlist em `.gitleaks.toml`.
+
+### Cargo audit e GitOps bump são composite actions (não vivem no reusable)
+Reusable workflows cross-org não recebem org secrets; composite actions sim. Cargo audit também saiu (v1.8.0) pra não aparecer skipped em clientes sem Rust. Cliente declara job próprio em `ci.yml` chamando a composite quando precisa.
+
+### Cache (v1.9.0+)
+- Docker: input `docker-cache-mode` aceita `gha` (default), `registry` (Artifact Registry, sem cap) ou `both`. `docker-cache-ref` é o ref do cache no registry — vazio = derivado de `<registry>/<image-name>-cache`.
+- `node_modules`: cacheado por hash do lockfile em todos os 4 jobs paralelos do `node.yml`. Automático, sem config no caller.
+
+### Report mk-frontend style
+Cada job emite `counts-<tool>.json` artifact + escreve no próprio Step Summary. Job `Report` consolida no PR comment + step summary do workflow. Sempre roda, qualquer outcome.
+
 ## Comandos comuns
 
 ### Validar workflows local antes de pushar

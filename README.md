@@ -113,10 +113,16 @@ Núcleo do pipeline. Pode ser chamado direto (sem testes de linguagem) ou via os
 | `auth-method` | string | `docker-login` | `docker-login` (user/pass) ou `gcp-wif` (OIDC pra GCP Artifact Registry) |
 | `gcp-workload-identity-provider` | string | `''` | WIF provider full path. Só `gcp-wif` |
 | `gcp-service-account` | string | `''` | Email da SA GCP. Só `gcp-wif` |
+| `docker-cache-mode` | string | `gha` | `gha` (10GB GitHub Actions cache), `registry` (cache no Artifact Registry, sem cap, sem isolamento por branch) ou `both` |
+| `docker-cache-ref` | string | `''` | Ref do cache no registry (ex: `<host>/<project>/<repo>-cache`). Vazio = derivado automaticamente de `<registry>/<image-name>-cache` |
 
 A partir de `v1.8.0`:
 - **Lint e container scan são obrigatórios** (sem inputs pra desligar). Lint exige `lint-command`.
 - **Cargo audit não está mais no reusable** — virou composite action chamada em job próprio. Veja [Cargo audit — composite action](#cargo-audit--composite-action).
+
+A partir de `v1.9.0`:
+- **`docker-cache-mode: registry`** evita o cap dos 10GB do GHA cache e fica no datacenter do registry — menos latência. Use quando o cliente tem volume de builds (vários PRs/dia ou imagem grande). Cache vive em `<docker-cache-ref>` ou no path default `<registry>/<image-name>-cache`.
+- **node_modules cache** automático em todos os jobs paralelos do `node.yml` (key = hash dos lockfiles). Hit completo deixa `pnpm install --frozen-lockfile` em ~3-5s vs 30-60s. Zero config do caller.
 
 ### Cargo audit — composite action
 
