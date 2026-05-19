@@ -240,6 +240,11 @@ Casos onde isso bate:
 
 `secrets: inherit` continua útil pra repos same-org e pra repo-level secrets cross-org.
 
+## Report e Node.js 24 (v1.6.0+)
+
+- O job `Report` (antigo `PR report`) agora roda **em todo run**, qualquer outcome. Sempre escreve a tabela de resultados no Step Summary do run. Se for um `pull_request`, também posta/atualiza o comentário com marker idempotente `<!-- ci-report -->`.
+- O reusable seta `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'` no nível do workflow, forçando todas as JavaScript actions a rodar em Node 24. Silencia os warnings de deprecation de Node 20 (`docker/build-push@v6`, `setup-buildx@v3`, `upload-artifact@v4`, `create-github-app-token@v1`, `github-script@v9`) sem precisar bumpar versão de cada action.
+
 ## Convenção de naming `-prod` / `-homolog`
 
 Padrão recomendado pra clientes Widesoftware: aplicar o sufixo do environment **no `image-name` e no path do registry** simultaneamente. Resultado final por evento:
