@@ -83,7 +83,6 @@ jobs:
       slack-channel: '#ci-cliente-a'
 
       # ----- avancado -------------------------------------------------------
-      # dockerfile-target: 'production'
       # platforms: 'linux/amd64'
       # build-args: |
       #   NODE_ENV=production
