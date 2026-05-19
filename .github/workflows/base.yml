@@ -676,7 +676,7 @@ jobs:
   # ===========================================================================
   container-scan:
     name: Container scan
-    if: needs.build-push.result == 'success'
+    if: always() && needs.build-push.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: build-push
