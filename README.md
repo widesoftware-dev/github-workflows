@@ -106,7 +106,7 @@ Núcleo do pipeline. Pode ser chamado direto (sem testes de linguagem) ou via os
 | `run-dependency-scan` | boolean | `true` | Composer/Yarn audit (efeito nos wrappers) |
 | `run-container-scan` | boolean | `true` | Trivy na imagem buildada |
 | `semgrep-configs` | string | `p/owasp-top-ten` | Configs Semgrep (separadas por espaço) |
-| `pr-report` | boolean | `true` | Comenta no PR em failure |
+| `pr-report` | boolean | `true` | Gera **Step Summary em todo run** e, se for PR, posta/atualiza comentário com tabela de jobs |
 | `notify-channel` | string | `none` | `none` \| `slack` \| `email` \| `both` |
 | `notify-on` | string | `failure` | `failure` \| `always` |
 | `slack-channel` | string | `''` | Nome do canal (opcional) |

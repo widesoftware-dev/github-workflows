@@ -87,6 +87,9 @@ on:
       SMTP_PASSWORD:        { required: false }
       SMTP_FROM:            { required: false }
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 permissions:
   contents: read
 
