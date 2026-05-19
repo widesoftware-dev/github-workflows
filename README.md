@@ -444,18 +444,59 @@ Renovate abre PR a cada nova tag publicada.
 
 ## 12. Proteção da main (prompt de referência)
 
-Prompt pronto pra colar no Claude Code dentro de um repo cliente. Configura ruleset na `main` e adiciona `CODEOWNERS` na raiz:
+Prompt pronto pra colar no Claude Code **dentro do repo cliente**. Cria/atualiza um ruleset no default branch e o `CODEOWNERS`. Os required status checks são derivados dos jobs que o CI realmente emite — então funciona em qualquer linguagem (pode faltar `Lint`, `Dependency audit`, etc., dependendo da stack).
 
 ```
-Vamos proteger a main seguindo os workflows. Utilize Ruleset
+Vamos proteger o default branch (main/master) seguindo o padrão Widesoftware. Use Ruleset (não branch protection clássica).
 
-PR só pode ser aprovado após finalizar a build e estar tudo verde
+Configuração obrigatória do ruleset:
 
-PR na main precisa de pelo menos 1 reviewer
+- name: protect-main
+- enforcement: active
+- target: branch
+- conditions.ref_name.include: ["~DEFAULT_BRANCH"]
+- bypass_actors: time admin da org (actor_type: Team, bypass_mode: always) — descubra o actor_id via `gh api /orgs/<org>/teams/admin` ou equivalente
+- rules:
+  - deletion
+  - non_fast_forward
+  - pull_request:
+      required_approving_review_count: 1
+      dismiss_stale_reviews_on_push: true
+      require_code_owner_review: true
+      require_last_push_approval: false
+      required_review_thread_resolution: true
+      allowed_merge_methods: [merge, squash, rebase]
+  - required_status_checks:
+      strict_required_status_checks_policy: true
+      do_not_enforce_on_create: false
+      required_status_checks: <derive dos jobs do CI — ver abaixo>
 
-Team @admin da org podem forçar aprovar PR
+Como derivar a lista de required_status_checks:
 
-Além disso mande para a main/master o CODEOWNERS.md:
+1. Liste os jobs do último run de sucesso do workflow CI no default branch:
+   `gh run list -R <owner/repo> --branch <default> --workflow ci.yml --limit 1 --json databaseId`
+   `gh api /repos/<owner/repo>/actions/runs/<run_id>/jobs | jq -r '.jobs[].name'`
+2. Inclua TODOS os jobs que rodam em pull_request, mesmo que dependam da stack (ex: pode não ter `ci / Lint`, `ci / Typecheck` ou `ci / Dependency audit` em todo repo — adicione só os que existem).
+3. EXCLUA jobs que não rodam em PR (vão travar o merge esperando check que nunca vem):
+   - `ci / Pipeline / Notify` (informacional, depende de secret de Slack/email)
+   - `ci / Pipeline / Report` (informacional, gera comentário no PR)
+   - `gitops` (composite action — só dispara em `tag v*` ou `push homolog`, nunca em PR)
+   - qualquer job com `if:` condicionado a `github.ref`/`event_name` que não cubra `pull_request`
+4. Conjunto típico (ajuste pela stack real):
+   - ci / Lint                        (se houver lint configurado)
+   - ci / Tests                       (se houver testes)
+   - ci / Typecheck                   (se houver typecheck — Node/TS)
+   - ci / Dependency audit            (se houver audit — Node/PHP/Go)
+   - ci / Pipeline / Build & push
+   - ci / Pipeline / SAST (Semgrep)
+   - ci / Pipeline / Secrets scan
+   - ci / Pipeline / Container scan
+   - ci / Pipeline / Vuln scan (Trivy FS)
+   - ci / Pipeline / Vuln scan (Trivy Config)
+   - cargo                            (só se o repo tiver Cargo.lock e job cargo-audit)
+
+Adicione (ou substitua) o arquivo CODEOWNERS no default branch em `.github/CODEOWNERS`:
+
 # CODEOWNERS — review obrigatorio por area.
 #
 # Sem regra `*` proposital: PRs em codigo da app (src/, blockchain/, etc.)
@@ -465,7 +506,12 @@ Além disso mande para a main/master o CODEOWNERS.md:
 # com aprovacao de quem mantem o pipeline e a governanca.
 /.github/ @throdines @shdacosta
 
-Me pergunte algo se precisar
+Antes de aplicar:
+- Confirme comigo a lista final de required_status_checks que você derivou.
+- Avise se algum job que está hoje no ruleset não aparece mais nos runs (provavelmente trava merge).
+- Se já existir ruleset no default branch, atualize via `gh api -X PUT /repos/<owner/repo>/rulesets/<id>` em vez de criar duplicata.
+
+Me pergunte se algo estiver ambíguo.
 ```
 
 ---
