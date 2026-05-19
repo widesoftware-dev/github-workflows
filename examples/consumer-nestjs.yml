@@ -31,7 +31,7 @@ permissions:
 
 jobs:
   ci:
-    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.6.4
+    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.6.5
     secrets: inherit
     with:
       # image-name = <repo>-<env>.
@@ -74,16 +74,19 @@ jobs:
   # acessiveis direto, sem o gargalo cross-org dos reusable workflows.
   gitops:
     needs: ci
+    # Roda quando a imagem foi efetivamente pushada, mesmo se algum scan
+    # falhou (em homolog o build segue mesmo com red). Sem isso, devs nao
+    # conseguem deployar enquanto resolvem debitos de seguranca.
     if: |
       always() &&
-      needs.ci.result == 'success' &&
+      needs.ci.outputs.build-pushed == 'true' &&
       (
         startsWith(github.ref, 'refs/tags/v') ||
         (github.event_name == 'push' && github.ref == 'refs/heads/homolog')
       )
     runs-on: ubuntu-latest
     steps:
-      - uses: widesoftware-dev/github-workflows/.github/actions/gitops-bump@v1.6.4
+      - uses: widesoftware-dev/github-workflows/.github/actions/gitops-bump@v1.6.5
         with:
           gitops-repo: 'org/microservice-ops'
           app-id: ${{ vars.APP_ID }}
