@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   ci:
-    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.6.5
+    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.7.0
     secrets: inherit
     with:
       # ----- obrigatorios ---------------------------------------------------

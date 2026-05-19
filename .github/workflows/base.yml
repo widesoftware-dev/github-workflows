@@ -243,8 +243,6 @@ jobs:
     if: inputs.run-secrets-scan
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Quando block-on-failure=false, marca o job como "success" mesmo se falhar.
-    # Assim build-push consegue rodar adiante em homolog.
     steps:
       - uses: actions/checkout@v6
         with:
@@ -258,7 +256,43 @@ jobs:
           chmod: 0755
 
       - name: Run gitleaks
+        id: scan
+        continue-on-error: true
         run: gitleaks detect --source . --redact --report-format json --report-path gitleaks-report.json --exit-code 1
+
+      - name: Render summary
+        if: always()
+        run: |
+          set +e
+          FINDINGS=0
+          if [ -s gitleaks-report.json ]; then
+            FINDINGS=$(jq 'length' gitleaks-report.json 2>/dev/null || echo 0)
+          fi
+          {
+            echo "## Gitleaks"
+            echo ""
+            if [ "$FINDINGS" -eq 0 ]; then
+              echo "Nenhum segredo detectado."
+            else
+              echo "**${FINDINGS} segredo(s) detectado(s).** Remover do historico antes do merge."
+              echo ""
+              echo "| Arquivo | Linha | Regra | Commit |"
+              echo "|---|---|---|---|"
+              jq -r '.[] | "| `\(.File)` | \(.StartLine) | `\(.RuleID)` | `\(.Commit[0:7])` |"' gitleaks-report.json | head -50
+            fi
+            echo ""
+            echo "> Artifact: \`gitleaks-report\`"
+          } > details.md
+          cat details.md >> "$GITHUB_STEP_SUMMARY"
+          STATUS=success
+          [ "$FINDINGS" -gt 0 ] && STATUS=failure
+          jq -n \
+            --arg tool "Gitleaks" \
+            --arg status "$STATUS" \
+            --arg summary "${FINDINGS} segredo(s)" \
+            --rawfile details details.md \
+            '{tool: $tool, status: $status, summary: $summary, details: $details}' \
+            > counts-gitleaks.json
 
       - name: Upload report
         if: always()
@@ -267,6 +301,18 @@ jobs:
           name: gitleaks-report
           path: gitleaks-report.json
           retention-days: 15
+
+      - name: Upload counts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: counts-gitleaks
+          path: counts-gitleaks.json
+          retention-days: 7
+
+      - name: Propagate status
+        if: always() && steps.scan.outcome == 'failure'
+        run: exit 1
 
   # ===========================================================================
   # 2. SAST — Semgrep
@@ -286,20 +332,54 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Run Semgrep
-        # Input via env evita workflow injection. Itera sobre os tokens
-        # separados por espaco e gera flags --config pra cada um.
-        # Usa `set --` (POSIX) ao inves de array bash porque o container do
-        # Semgrep e alpine + sh; arrays bash dao "syntax error: unexpected ("
-        # em sh. set -- preserva word-splitting controlado e shellcheck OK.
+        id: scan
+        continue-on-error: true
         env:
           SEMGREP_CONFIGS: ${{ inputs.semgrep-configs }}
         run: |
-          set -e
+          set +e
           set --
           for cfg in $SEMGREP_CONFIGS; do
             set -- "$@" --config "$cfg"
           done
           semgrep scan "$@" --severity ERROR --error --sarif --output semgrep.sarif
+          echo "$?" > semgrep.exit
+          exit "$(cat semgrep.exit)"
+
+      - name: Render summary
+        if: always()
+        run: |
+          set +e
+          EXIT=$(cat semgrep.exit 2>/dev/null || echo 0)
+          FINDINGS=0
+          if [ -s semgrep.sarif ]; then
+            FINDINGS=$(jq '[.runs[]?.results[]?] | length' semgrep.sarif 2>/dev/null || echo 0)
+          fi
+          {
+            echo "## Semgrep SAST"
+            echo ""
+            if [ "$FINDINGS" -eq 0 ] && [ "$EXIT" -eq 0 ]; then
+              echo "Nenhuma vulnerabilidade ERROR nas regras configuradas."
+            else
+              echo "**${FINDINGS} achado(s) com severidade ERROR.**"
+              echo ""
+              echo "| Regra | Arquivo | Linha |"
+              echo "|---|---|---|"
+              jq -r '[.runs[]? | .results[]? as $r | {rule: ($r.ruleId // "?"), file: ($r.locations[0].physicalLocation.artifactLocation.uri // "?"), line: ($r.locations[0].physicalLocation.region.startLine // 0)}] | .[:20][] | "| `\(.rule)` | `\(.file)` | \(.line) |"' semgrep.sarif 2>/dev/null || true
+            fi
+            echo ""
+            echo "> Artifact: \`semgrep-report\`"
+          } > details.md
+          cat details.md >> "$GITHUB_STEP_SUMMARY"
+          STATUS=success
+          [ "$EXIT" -ne 0 ] && STATUS=failure
+          jq -n \
+            --arg tool "Semgrep SAST" \
+            --arg status "$STATUS" \
+            --arg summary "${FINDINGS} achado(s)" \
+            --rawfile details details.md \
+            '{tool: $tool, status: $status, summary: $summary, details: $details}' \
+            > counts-sast.json
 
       - name: Upload report
         if: always()
@@ -308,6 +388,18 @@ jobs:
           name: semgrep-report
           path: semgrep.sarif
           retention-days: 15
+
+      - name: Upload counts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: counts-sast
+          path: counts-sast.json
+          retention-days: 7
+
+      - name: Propagate status
+        if: always() && steps.scan.outcome == 'failure'
+        run: exit 1
 
   # ===========================================================================
   # 3. VULN SCAN FS — Trivy FS
@@ -324,24 +416,71 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Trivy FS
+        id: scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
-          format: table
-          output: trivy-fs.txt
+          format: json
+          output: trivy-fs.json
           severity: 'HIGH,CRITICAL'
           exit-code: '1'
           ignore-unfixed: true
           skip-dirs: node_modules,dist,.git,.yarn,vendor
+        continue-on-error: true
+
+      - name: Render summary
+        if: always()
+        run: |
+          set +e
+          HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-fs.json 2>/dev/null || echo 0)
+          CRIT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-fs.json 2>/dev/null || echo 0)
+          TOTAL=$((HIGH + CRIT))
+          {
+            echo "## Trivy FS"
+            echo ""
+            if [ "$TOTAL" -eq 0 ]; then
+              echo "Nenhuma vulnerabilidade HIGH/CRITICAL nos manifestos."
+            else
+              echo "**${TOTAL} vulnerabilidade(s)** (HIGH=${HIGH}, CRITICAL=${CRIT})."
+              echo ""
+              echo "| Severidade | CVE | Pacote | Versão | Fixed |"
+              echo "|---|---|---|---|---|"
+              jq -r '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL")] | .[:20][] | "| \(.Severity) | `\(.VulnerabilityID)` | `\(.PkgName)` | `\(.InstalledVersion)` | `\(.FixedVersion // "—")` |"' trivy-fs.json 2>/dev/null || true
+            fi
+            echo ""
+            echo "> Artifact: \`trivy-fs-report\`"
+          } > details.md
+          cat details.md >> "$GITHUB_STEP_SUMMARY"
+          STATUS=success
+          [ "${{ steps.scan.outcome }}" = "failure" ] && STATUS=failure
+          jq -n \
+            --arg tool "Trivy FS" \
+            --arg status "$STATUS" \
+            --arg summary "${TOTAL} HIGH/CRITICAL" \
+            --rawfile details details.md \
+            '{tool: $tool, status: $status, summary: $summary, details: $details}' \
+            > counts-trivy-fs.json
 
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: trivy-fs-report
-          path: trivy-fs.txt
+          path: trivy-fs.json
           retention-days: 15
+
+      - name: Upload counts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: counts-trivy-fs
+          path: counts-trivy-fs.json
+          retention-days: 7
+
+      - name: Propagate status
+        if: always() && steps.scan.outcome == 'failure'
+        run: exit 1
 
   # ===========================================================================
   # 4. VULN SCAN CONFIG — Trivy Config
@@ -358,24 +497,69 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Trivy Config
+        id: scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: .
-          format: table
-          output: trivy-config.txt
+          format: json
+          output: trivy-config.json
           severity: 'HIGH,CRITICAL'
           exit-code: '1'
           ignore-unfixed: true
           skip-dirs: node_modules,dist,.git,.yarn,vendor
+        continue-on-error: true
+
+      - name: Render summary
+        if: always()
+        run: |
+          set +e
+          TOTAL=$(jq '[.Results[]?.Misconfigurations[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL")] | length' trivy-config.json 2>/dev/null || echo 0)
+          {
+            echo "## Trivy Config"
+            echo ""
+            if [ "$TOTAL" -eq 0 ]; then
+              echo "Nenhum misconfig HIGH/CRITICAL em Dockerfile/IaC."
+            else
+              echo "**${TOTAL} misconfig(s) HIGH/CRITICAL.**"
+              echo ""
+              echo "| Severidade | ID | Arquivo | Titulo |"
+              echo "|---|---|---|---|"
+              jq -r '[.Results[]? as $r | $r.Misconfigurations[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL") | {sev: .Severity, id: .ID, file: $r.Target, msg: .Title}] | .[:20][] | "| \(.sev) | `\(.id)` | `\(.file)` | \(.msg) |"' trivy-config.json 2>/dev/null || true
+            fi
+            echo ""
+            echo "> Artifact: \`trivy-config-report\`"
+          } > details.md
+          cat details.md >> "$GITHUB_STEP_SUMMARY"
+          STATUS=success
+          [ "${{ steps.scan.outcome }}" = "failure" ] && STATUS=failure
+          jq -n \
+            --arg tool "Trivy Config" \
+            --arg status "$STATUS" \
+            --arg summary "${TOTAL} misconfig(s)" \
+            --rawfile details details.md \
+            '{tool: $tool, status: $status, summary: $summary, details: $details}' \
+            > counts-trivy-config.json
 
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: trivy-config-report
-          path: trivy-config.txt
+          path: trivy-config.json
           retention-days: 15
+
+      - name: Upload counts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: counts-trivy-config
+          path: counts-trivy-config.json
+          retention-days: 7
+
+      - name: Propagate status
+        if: always() && steps.scan.outcome == 'failure'
+        run: exit 1
 
   # ===========================================================================
   # 4b. DEPENDENCY SCAN RUST — cargo audit
@@ -404,18 +588,75 @@ jobs:
         run: cargo install cargo-audit --locked
 
       - name: Run cargo audit
+        id: scan
+        continue-on-error: true
         env:
           PATHS: ${{ inputs.cargo-audit-paths }}
         run: |
-          set -e
+          set +e
+          : > cargo-audit.log
+          FAIL=0
           IFS=',' read -ra DIRS <<< "$PATHS"
           for dir in "${DIRS[@]}"; do
-            dir=$(echo "$dir" | xargs)  # trim
+            dir=$(echo "$dir" | xargs)
             [ -z "$dir" ] && continue
             echo "::group::cargo audit em $dir"
-            (cd "$dir" && cargo audit)
+            (cd "$dir" && cargo audit) 2>&1 | tee -a cargo-audit.log
+            S="${PIPESTATUS[0]}"
+            [ "$S" -ne 0 ] && FAIL=1
             echo "::endgroup::"
           done
+          exit "$FAIL"
+
+      - name: Render summary
+        if: always()
+        run: |
+          set +e
+          {
+            echo "## Cargo audit"
+            echo ""
+            if [ "${{ steps.scan.outcome }}" = "success" ]; then
+              echo "Nenhuma vulnerabilidade conhecida em \`${{ inputs.cargo-audit-paths }}\`."
+            else
+              echo "**Vulnerabilidades em \`${{ inputs.cargo-audit-paths }}\`.** Trecho final:"
+              echo ""
+              echo '```'
+              tail -50 cargo-audit.log
+              echo '```'
+            fi
+            echo ""
+            echo "> Artifact: \`cargo-audit-log\`"
+          } > details.md
+          cat details.md >> "$GITHUB_STEP_SUMMARY"
+          STATUS=success
+          [ "${{ steps.scan.outcome }}" = "failure" ] && STATUS=failure
+          jq -n \
+            --arg tool "Cargo audit" \
+            --arg status "$STATUS" \
+            --arg summary "$([ "$STATUS" = "success" ] && echo 'limpo' || echo 'vulns encontradas')" \
+            --rawfile details details.md \
+            '{tool: $tool, status: $status, summary: $summary, details: $details}' \
+            > counts-cargo-audit.json
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-audit-log
+          path: cargo-audit.log
+          retention-days: 15
+
+      - name: Upload counts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: counts-cargo-audit
+          path: counts-cargo-audit.json
+          retention-days: 7
+
+      - name: Propagate status
+        if: always() && steps.scan.outcome == 'failure'
+        run: exit 1
 
   # ===========================================================================
   # 5. BUILD & PUSH
@@ -574,23 +815,70 @@ jobs:
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
       - name: Trivy image
+        id: scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ needs.build-push.outputs.image-ref }}
-          format: table
-          output: trivy-image.txt
+          format: json
+          output: trivy-image.json
           severity: 'HIGH,CRITICAL'
           exit-code: '1'
           ignore-unfixed: true
           vuln-type: os,library
+        continue-on-error: true
+
+      - name: Render summary
+        if: always()
+        run: |
+          set +e
+          HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-image.json 2>/dev/null || echo 0)
+          CRIT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-image.json 2>/dev/null || echo 0)
+          TOTAL=$((HIGH + CRIT))
+          {
+            echo "## Container scan (Trivy image)"
+            echo ""
+            if [ "$TOTAL" -eq 0 ]; then
+              echo "Nenhuma vulnerabilidade HIGH/CRITICAL na imagem."
+            else
+              echo "**${TOTAL} vulnerabilidade(s)** (HIGH=${HIGH}, CRITICAL=${CRIT})."
+              echo ""
+              echo "| Severidade | CVE | Pacote | Versão | Fixed |"
+              echo "|---|---|---|---|---|"
+              jq -r '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL")] | .[:20][] | "| \(.Severity) | `\(.VulnerabilityID)` | `\(.PkgName)` | `\(.InstalledVersion)` | `\(.FixedVersion // "—")` |"' trivy-image.json 2>/dev/null || true
+            fi
+            echo ""
+            echo "> Artifact: \`trivy-image-report\`"
+          } > details.md
+          cat details.md >> "$GITHUB_STEP_SUMMARY"
+          STATUS=success
+          [ "${{ steps.scan.outcome }}" = "failure" ] && STATUS=failure
+          jq -n \
+            --arg tool "Container scan" \
+            --arg status "$STATUS" \
+            --arg summary "${TOTAL} HIGH/CRITICAL" \
+            --rawfile details details.md \
+            '{tool: $tool, status: $status, summary: $summary, details: $details}' \
+            > counts-container-scan.json
 
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: trivy-image-report
-          path: trivy-image.txt
+          path: trivy-image.json
           retention-days: 15
+
+      - name: Upload counts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: counts-container-scan
+          path: counts-container-scan.json
+          retention-days: 7
+
+      - name: Propagate status
+        if: always() && steps.scan.outcome == 'failure'
+        run: exit 1
 
   # GitOps bump foi extraido pra uma composite action — chame
   # widesoftware-dev/github-workflows/.github/actions/gitops-bump@<tag>
@@ -624,187 +912,93 @@ jobs:
       pull-requests: write
       actions: read
     steps:
-      - name: Build report (step summary + PR comment)
+      # Pega counts-<tool>.json gerados por cada job (scan/test/etc).
+      - name: Download counts artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: counts-*
+          merge-multiple: true
+          path: counts
+
+      - name: Consolidate report
         uses: actions/github-script@v9
-        env:
-          SECRETS_RESULT: ${{ needs.secrets-scan.result }}
-          SAST_RESULT: ${{ needs.sast.result }}
-          TRIVY_FS_RESULT: ${{ needs.vuln-scan-fs.result }}
-          TRIVY_CONFIG_RESULT: ${{ needs.vuln-scan-config.result }}
-          CARGO_AUDIT_RESULT: ${{ needs.dependency-scan-rust.result }}
-          BUILD_RESULT: ${{ needs.build-push.result }}
-          CONTAINER_RESULT: ${{ needs.container-scan.result }}
         with:
           script: |
             const fs = require('fs');
+            const path = require('path');
             const { owner, repo } = context.repo;
             const runId = context.runId;
-
-            const results = {
-              'Secrets scan':    process.env.SECRETS_RESULT,
-              'SAST':            process.env.SAST_RESULT,
-              'Vuln scan (FS)':  process.env.TRIVY_FS_RESULT,
-              'Vuln scan (Cfg)': process.env.TRIVY_CONFIG_RESULT,
-              'Cargo audit':     process.env.CARGO_AUDIT_RESULT,
-              'Build & push':    process.env.BUILD_RESULT,
-              'Container scan':  process.env.CONTAINER_RESULT,
-            };
-            const icon = (r) => ({
-              success: '✅', failure: '❌', cancelled: '⏹️', skipped: '⏭️',
-            }[r] || '❓');
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${runId}`;
-            const rows = Object.entries(results)
-              .map(([n, r]) => `| ${icon(r)} | **${n}** | \`${r}\` |`).join('\n');
-            const failedNames = Object.entries(results)
-              .filter(([, r]) => r === 'failure').map(([n]) => n);
-            const passedCount = Object.entries(results)
-              .filter(([, r]) => r === 'success').length;
-            const hasFailure = failedNames.length > 0;
 
-            // ---- Extrai trechos de log POR STEP que falhou dentro do job ---
-            // mk-frontend style: cada step com failure tem seu proprio
-            // <details> com as linhas relevantes pertencentes a esse step.
-            const STEP_LINES_MAX = 40;
-            const ERROR_PATTERNS = [
-              /^##\[error\]/i,
-              /\bERROR\b/,
-              /\bError:/,
-              /\bFAIL\b/,
-              /\bFAILED\b/,
-              /panic:/i,
-              /Exception/,
-              /Fatal error/i,
-              /not found/i,
-              /Process completed with exit code [^0]/,
-              /HIGH:|CRITICAL:/,
-              /--- FAIL:/,
-              /unable to|cannot find|denied/i,
+            const countsDir = 'counts';
+            const counts = {};
+            if (fs.existsSync(countsDir)) {
+              for (const file of fs.readdirSync(countsDir)) {
+                try {
+                  const data = JSON.parse(fs.readFileSync(path.join(countsDir, file), 'utf8'));
+                  counts[data.tool] = data;
+                } catch (e) { /* skip malformado */ }
+              }
+            }
+
+            const ORDER = [
+              'Gitleaks',
+              'Dependency audit',
+              'Lint',
+              'Typecheck',
+              'Tests',
+              'Semgrep SAST',
+              'Trivy FS',
+              'Trivy Config',
+              'Cargo audit',
+              'Container scan',
             ];
-            const STRIP_TIMESTAMP = /^\S+\s+\S+\s+\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s?/;
+            const icon = (s) => ({
+              success: '✅', failure: '❌',
+              cancelled: '⏹️', skipped: '⏭️',
+            }[s] || '❓');
 
-            // GitHub logs come prefixed per-step with the step name on a
-            // ##[group] line. Parse the log into per-step buckets so each
-            // failure can be quoted next to its own step.
-            function bucketLinesByStep(rawText) {
-              const lines = rawText.split('\n')
-                .map(l => l.replace(STRIP_TIMESTAMP, ''));
-              const buckets = []; // { name, lines: [...] }
-              let current = { name: '(setup)', lines: [] };
-              for (const l of lines) {
-                const m = l.match(/^##\[group\]Run\s+(.+)$/);
-                if (m) {
-                  if (current.lines.length) buckets.push(current);
-                  current = { name: m[1].split('\n')[0].slice(0, 120), lines: [] };
-                  continue;
-                }
-                current.lines.push(l);
-              }
-              if (current.lines.length) buckets.push(current);
-              return buckets;
-            }
+            const present = ORDER.filter(t => counts[t]);
+            const rows = present.map(t => {
+              const c = counts[t];
+              return `| ${icon(c.status)} | **${t}** | ${c.summary || '—'} |`;
+            }).join('\n');
 
-            function pickErrorLines(stepLines) {
-              const trimmed = stepLines.map(l => l.trim()).filter(Boolean);
-              const matched = trimmed.filter(l => ERROR_PATTERNS.some(p => p.test(l)));
-              const picked = (matched.length ? matched : trimmed).slice(-STEP_LINES_MAX);
-              return picked.join('\n').slice(0, 4000);
-            }
+            const failed = present
+              .map(t => counts[t])
+              .filter(c => c.status === 'failure' && c.details);
 
-            async function fetchJobLog(jobId) {
-              try {
-                const res = await github.request(
-                  'GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs',
-                  { owner, repo, job_id: jobId, request: { redirect: 'follow' } }
-                );
-                return typeof res.data === 'string'
-                  ? res.data
-                  : Buffer.from(res.data).toString('utf8');
-              } catch (e) {
-                return null;
-              }
-            }
+            const truncate = (s, lim = 6000) =>
+              s.length > lim ? s.slice(0, lim) + '\n\n_…truncado. Ver artifact._' : s;
 
-            let detailsBlock = '';
-            if (hasFailure) {
-              const { data: { jobs } } = await github.rest.actions.listJobsForWorkflowRun({
-                owner, repo, run_id: runId, per_page: 100,
-              });
-              const failedJobs = jobs.filter(j => j.conclusion === 'failure');
-              const sections = [];
+            const detailsBlocks = failed.map(c => [
+              '<details open>',
+              `<summary>❌ <strong>${c.tool}</strong> — ${c.summary}</summary>`,
+              '',
+              truncate(c.details).trim(),
+              '',
+              '</details>',
+            ].join('\n')).join('\n\n');
 
-              for (const job of failedJobs) {
-                const failedSteps = (job.steps || []).filter(s => s.conclusion === 'failure');
-                const log = await fetchJobLog(job.id);
-                const buckets = log ? bucketLinesByStep(log) : [];
-                const stepSections = [];
-
-                if (failedSteps.length === 0) {
-                  // Job marcado failure mas sem step failure visivel — quote
-                  // ultimas linhas do log inteiro pro dev se virar.
-                  const all = buckets.flatMap(b => b.lines);
-                  const tail = pickErrorLines(all);
-                  stepSections.push([
-                    '```',
-                    tail || '(sem saída relevante)',
-                    '```',
-                  ].join('\n'));
-                } else {
-                  for (const step of failedSteps) {
-                    const bucket = buckets.find(b => b.name === step.name) ||
-                                   buckets.find(b => b.name.includes(step.name));
-                    const snippet = bucket
-                      ? pickErrorLines(bucket.lines)
-                      : '(log do step nao encontrado — abra "ver logs" pra inspecionar)';
-                    stepSections.push([
-                      `**Step com falha:** \`${step.name}\``,
-                      '',
-                      '```',
-                      snippet || '(sem saída relevante)',
-                      '```',
-                    ].join('\n'));
-                  }
-                }
-
-                sections.push([
-                  '<details>',
-                  `<summary>❌ <strong>${job.name}</strong> — <a href="${job.html_url}">ver logs</a></summary>`,
-                  '',
-                  stepSections.join('\n\n'),
-                  '',
-                  '</details>',
-                ].join('\n'));
-              }
-
-              if (sections.length) {
-                detailsBlock = ['### Detalhe dos erros', '', sections.join('\n\n')].join('\n');
-              }
-            }
-
-            // ---- Monta corpo (mesmo conteudo no Step Summary e no PR) ----
-            const header = hasFailure
-              ? `## ❌ CI falhou — ${failedNames.length} job(s) com erro`
-              : '## ✅ CI verde';
             const sha7 = context.sha.substring(0, 7);
+            const header = failed.length > 0
+              ? `## ❌ CI falhou — ${failed.length} tool(s) com problemas`
+              : '## ✅ CI verde';
+
             const bodyLines = [
               header,
               '',
               `Commit \`${sha7}\` · [ver run completo](${runUrl})`,
               '',
-              hasFailure
-                ? `**Jobs com falha:** ${failedNames.map(n => `\`${n}\``).join(', ')}`
-                : `**Todos os jobs passaram** (${passedCount} verde${passedCount === 1 ? '' : 's'}).`,
-              '',
-              '| | Job | Resultado |',
+              '| | Tool | Achados |',
               '|---|---|---|',
               rows,
               '',
-              detailsBlock,
+              detailsBlocks ? '### Detalhes\n\n' + detailsBlocks : '',
             ].filter(Boolean);
 
-            // ---- Step Summary (sempre, em qualquer evento) ---------------
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, bodyLines.join('\n') + '\n');
 
-            // ---- Comentario no PR (so em pull_request) -------------------
             if (context.eventName !== 'pull_request') {
               core.info('Nao e um PR event — comentario pulado; report no step summary.');
               return;
@@ -815,13 +1009,12 @@ jobs:
               marker,
               ...bodyLines,
               '',
-              '<sub>Comentário atualizado automaticamente por `widesoftware-dev/github-workflows`.</sub>',
+              '<sub>Comentario auto-atualizado por `widesoftware-dev/github-workflows`. Artifacts (.json/.log) disponiveis no run por 15 dias.</sub>',
             ].join('\n');
 
             const { data: comments } = await github.rest.issues.listComments({
               owner, repo, issue_number: context.issue.number, per_page: 100,
             });
-            // Aceita o marker novo e o legado (pre-v1.6).
             const existing = comments.find(c =>
               c.body && (c.body.includes(marker) || c.body.includes('<!-- ci-failure-report -->'))
             );
