@@ -176,6 +176,22 @@ on:
       # em um job proprio do caller. Reusable workflow cross-org nao recebe
       # organization secrets, e composite actions sim (rodam no job do caller).
 
+      # ----- Docker cache mode (v1.9.0+) -------------------------------------
+      # gha      = GitHub Actions cache (default, 10GB cap, isolado por branch).
+      # registry = cache no proprio registry (precisa docker-cache-ref).
+      #            Sem cap, compartilhado entre branches, sem latencia HTTPS.
+      # both     = grava nos dois, le do mais quente.
+      docker-cache-mode:
+        description: 'Modo de cache do Docker buildx: gha | registry | both.'
+        required: false
+        type: string
+        default: 'gha'
+      docker-cache-ref:
+        description: 'Ref do cache no registry, usado quando docker-cache-mode inclui registry (ex: <host>/<project>/<repo>-cache). Vazio = derivado de <registry>:cache.'
+        required: false
+        type: string
+        default: ''
+
     # Secrets sao `required: false` no nivel do workflow porque alguns clientes
     # nao usam push (do-push: false) ou nao usam Slack/email. A validacao real
     # acontece dentro dos jobs (`if:`, ou skip silencioso).
@@ -643,6 +659,44 @@ jobs:
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
+      # Resolve cache-from/cache-to multilinha baseado em docker-cache-mode.
+      # Inputs em multilinha YAML aceitam string com \n separando entradas.
+      - name: Resolve docker cache
+        id: dcache
+        env:
+          MODE: ${{ inputs.docker-cache-mode }}
+          REF_INPUT: ${{ inputs.docker-cache-ref }}
+          REGISTRY: ${{ inputs.registry }}
+          IMAGE_NAME: ${{ inputs.image-name }}
+        run: |
+          set -e
+          FROM=""
+          TO=""
+          # GHA cache
+          case "$MODE" in
+            gha|both)
+              FROM="${FROM}type=gha,scope=${IMAGE_NAME}"$'\n'
+              TO="${TO}type=gha,scope=${IMAGE_NAME},mode=max"$'\n'
+              ;;
+          esac
+          # Registry cache
+          case "$MODE" in
+            registry|both)
+              REF="$REF_INPUT"
+              [ -z "$REF" ] && REF="${REGISTRY}/${IMAGE_NAME}-cache"
+              FROM="${FROM}type=registry,ref=${REF}"$'\n'
+              TO="${TO}type=registry,ref=${REF},mode=max"$'\n'
+              ;;
+          esac
+          {
+            echo "from<<EOF"
+            printf '%s' "$FROM"
+            echo "EOF"
+            echo "to<<EOF"
+            printf '%s' "$TO"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       # load: true (quando push=false) carrega a imagem no daemon local
       # — util pra debug ou pra rodar testes contra o container localmente.
       - name: Build (and push)
@@ -657,8 +711,8 @@ jobs:
           load: ${{ !inputs.do-push }}
           tags: ${{ steps.meta.outputs.image-ref }}
           build-args: ${{ inputs.build-args }}
-          cache-from: type=gha,scope=${{ inputs.image-name }}
-          cache-to: type=gha,scope=${{ inputs.image-name }},mode=max
+          cache-from: ${{ steps.dcache.outputs.from }}
+          cache-to: ${{ steps.dcache.outputs.to }}
 
       # Setado APENAS se build-push subiu efetivamente uma imagem. Caller usa
       # esse output pra decidir se pode rodar gitops bump mesmo quando scans

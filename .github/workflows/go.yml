@@ -71,6 +71,8 @@ on:
       notify-on:         { required: false, type: string, default: 'failure' }
       slack-channel:     { required: false, type: string, default: '' }
       email-to:          { required: false, type: string, default: '' }
+      docker-cache-mode: { required: false, type: string, default: 'gha' }
+      docker-cache-ref:  { required: false, type: string, default: '' }
       auth-method:                { required: false, type: string, default: 'docker-login' }
       gcp-workload-identity-provider: { required: false, type: string, default: '' }
       gcp-service-account:        { required: false, type: string, default: '' }
@@ -191,6 +193,8 @@ jobs:
       notify-on:           ${{ inputs.notify-on }}
       slack-channel:       ${{ inputs.slack-channel }}
       email-to:            ${{ inputs.email-to }}
+      docker-cache-mode:   ${{ inputs.docker-cache-mode }}
+      docker-cache-ref:    ${{ inputs.docker-cache-ref }}
       auth-method:                    ${{ inputs.auth-method }}
       gcp-workload-identity-provider: ${{ inputs.gcp-workload-identity-provider }}
       gcp-service-account:            ${{ inputs.gcp-service-account }}
