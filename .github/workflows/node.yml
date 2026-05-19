@@ -162,24 +162,89 @@ jobs:
           fi
 
       - name: Audit
+        id: scan
+        continue-on-error: true
         env:
           PM: ${{ inputs.package-manager }}
         run: |
-          set -e
+          set +e
+          HIGH=0
+          CRIT=0
           if [ "$PM" = "pnpm" ]; then
             pnpm audit --json 2>/dev/null > pm-audit.json || true
-            HIGH_PLUS=$(jq '.metadata.vulnerabilities.critical + .metadata.vulnerabilities.high' pm-audit.json)
-            echo "### pnpm audit" >> "$GITHUB_STEP_SUMMARY"
-            echo "- High + Critical: ${HIGH_PLUS}" >> "$GITHUB_STEP_SUMMARY"
-            if [ "$HIGH_PLUS" -gt 0 ]; then
-              echo "::error::pnpm audit encontrou ${HIGH_PLUS} vulnerabilidades HIGH/CRITICAL"
-              exit 1
-            fi
+            HIGH=$(jq '.metadata.vulnerabilities.high // 0' pm-audit.json 2>/dev/null || echo 0)
+            CRIT=$(jq '.metadata.vulnerabilities.critical // 0' pm-audit.json 2>/dev/null || echo 0)
           elif [ "$PM" = "yarn" ]; then
-            yarn npm audit --recursive --all --severity high
+            yarn npm audit --recursive --all --severity high --json 2>/dev/null > pm-audit.json || true
+            HIGH=$(jq -s '[.[] | select(.children.Severity=="High")] | length' pm-audit.json 2>/dev/null || echo 0)
+            CRIT=$(jq -s '[.[] | select(.children.Severity=="Critical")] | length' pm-audit.json 2>/dev/null || echo 0)
           else
-            npm audit --audit-level=high
+            npm audit --json --audit-level=high 2>/dev/null > pm-audit.json || true
+            HIGH=$(jq '.metadata.vulnerabilities.high // 0' pm-audit.json 2>/dev/null || echo 0)
+            CRIT=$(jq '.metadata.vulnerabilities.critical // 0' pm-audit.json 2>/dev/null || echo 0)
           fi
+          TOTAL=$((HIGH + CRIT))
+          echo "high=$HIGH" >> "$GITHUB_OUTPUT"
+          echo "crit=$CRIT" >> "$GITHUB_OUTPUT"
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+          [ "$TOTAL" -gt 0 ] && exit 1 || exit 0
+
+      - name: Render summary
+        if: always()
+        env:
+          PM: ${{ inputs.package-manager }}
+          HIGH: ${{ steps.scan.outputs.high }}
+          CRIT: ${{ steps.scan.outputs.crit }}
+          TOTAL: ${{ steps.scan.outputs.total }}
+        run: |
+          set +e
+          {
+            echo "## Dependency audit (${PM})"
+            echo ""
+            if [ "${TOTAL:-0}" -eq 0 ]; then
+              echo "Nenhuma vulnerabilidade HIGH/CRITICAL."
+            else
+              echo "**${TOTAL} vulnerabilidade(s)** (HIGH=${HIGH}, CRITICAL=${CRIT})."
+              echo ""
+              if [ "$PM" = "pnpm" ] || [ "$PM" = "npm" ]; then
+                echo "| Severidade | Modulo | Via |"
+                echo "|---|---|---|"
+                jq -r '.advisories // .vulnerabilities // {} | to_entries[] | .value | select(.severity=="high" or .severity=="critical") | "| \(.severity | ascii_upcase) | `\(.name // .module_name // "?")` | \(.via[0].title // .title // "—") |"' pm-audit.json 2>/dev/null | head -20 || true
+              fi
+            fi
+            echo ""
+            echo "> Artifact completo: \`pm-audit-report\`"
+          } > details.md
+          cat details.md >> "$GITHUB_STEP_SUMMARY"
+          STATUS=success
+          [ "${{ steps.scan.outcome }}" = "failure" ] && STATUS=failure
+          jq -n \
+            --arg tool "Dependency audit" \
+            --arg status "$STATUS" \
+            --arg summary "${TOTAL:-0} HIGH/CRITICAL" \
+            --rawfile details details.md \
+            '{tool: $tool, status: $status, summary: $summary, details: $details}' \
+            > counts-audit.json
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pm-audit-report
+          path: pm-audit.json
+          retention-days: 15
+
+      - name: Upload counts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: counts-audit
+          path: counts-audit.json
+          retention-days: 7
+
+      - name: Propagate status
+        if: always() && steps.scan.outcome == 'failure'
+        run: exit 1
 
   # ===========================================================================
   # Lint — pula se lint-command vazio.
@@ -231,9 +296,67 @@ jobs:
           fi
 
       - name: Lint
+        id: scan
+        continue-on-error: true
         env:
           CMD: ${{ inputs.lint-command }}
-        run: bash -c "$CMD"
+        run: |
+          set +e
+          bash -c "$CMD" 2>&1 | tee lint.log
+          echo "${PIPESTATUS[0]}" > lint.exit
+          exit "$(cat lint.exit)"
+
+      - name: Render summary
+        if: always()
+        run: |
+          set +e
+          EXIT=$(cat lint.exit 2>/dev/null || echo 0)
+          TOTAL=$(grep -cE '^[[:space:]]+[0-9]+:[0-9]+|[[:space:]]error' lint.log 2>/dev/null || echo 0)
+          {
+            echo "## Lint"
+            echo ""
+            if [ "$EXIT" -eq 0 ]; then
+              echo "Sem erros de lint."
+            else
+              echo "**${TOTAL} erro(s) de lint reportado(s).** Trecho final:"
+              echo ""
+              echo '```'
+              tail -40 lint.log
+              echo '```'
+            fi
+            echo ""
+            echo "> Artifact completo: \`lint-log\`"
+          } > details.md
+          cat details.md >> "$GITHUB_STEP_SUMMARY"
+          STATUS=success
+          [ "$EXIT" -ne 0 ] && STATUS=failure
+          jq -n \
+            --arg tool "Lint" \
+            --arg status "$STATUS" \
+            --arg summary "${TOTAL} erro(s)" \
+            --rawfile details details.md \
+            '{tool: $tool, status: $status, summary: $summary, details: $details}' \
+            > counts-lint.json
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-log
+          path: lint.log
+          retention-days: 15
+
+      - name: Upload counts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: counts-lint
+          path: counts-lint.json
+          retention-days: 7
+
+      - name: Propagate status
+        if: always() && steps.scan.outcome == 'failure'
+        run: exit 1
 
   # ===========================================================================
   # Typecheck — pula se typecheck-command vazio.
@@ -285,9 +408,67 @@ jobs:
           fi
 
       - name: Typecheck
+        id: scan
+        continue-on-error: true
         env:
           CMD: ${{ inputs.typecheck-command }}
-        run: bash -c "$CMD"
+        run: |
+          set +e
+          bash -c "$CMD" 2>&1 | tee typecheck.log
+          echo "${PIPESTATUS[0]}" > typecheck.exit
+          exit "$(cat typecheck.exit)"
+
+      - name: Render summary
+        if: always()
+        run: |
+          set +e
+          EXIT=$(cat typecheck.exit 2>/dev/null || echo 0)
+          TOTAL=$(grep -cE '^.*error TS[0-9]+:' typecheck.log 2>/dev/null || echo 0)
+          {
+            echo "## Typecheck"
+            echo ""
+            if [ "$EXIT" -eq 0 ]; then
+              echo "Sem erros de tipagem."
+            else
+              echo "**${TOTAL} erro(s) de tipo.** Trecho final:"
+              echo ""
+              echo '```'
+              tail -40 typecheck.log
+              echo '```'
+            fi
+            echo ""
+            echo "> Artifact completo: \`typecheck-log\`"
+          } > details.md
+          cat details.md >> "$GITHUB_STEP_SUMMARY"
+          STATUS=success
+          [ "$EXIT" -ne 0 ] && STATUS=failure
+          jq -n \
+            --arg tool "Typecheck" \
+            --arg status "$STATUS" \
+            --arg summary "${TOTAL} erro(s)" \
+            --rawfile details details.md \
+            '{tool: $tool, status: $status, summary: $summary, details: $details}' \
+            > counts-typecheck.json
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: typecheck-log
+          path: typecheck.log
+          retention-days: 15
+
+      - name: Upload counts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: counts-typecheck
+          path: counts-typecheck.json
+          retention-days: 7
+
+      - name: Propagate status
+        if: always() && steps.scan.outcome == 'failure'
+        run: exit 1
 
   # ===========================================================================
   # Test — pula se test-command vazio.
@@ -339,9 +520,67 @@ jobs:
           fi
 
       - name: Run tests
+        id: scan
+        continue-on-error: true
         env:
           CMD: ${{ inputs.test-command }}
-        run: bash -c "$CMD"
+        run: |
+          set +e
+          bash -c "$CMD" 2>&1 | tee tests.log
+          echo "${PIPESTATUS[0]}" > tests.exit
+          exit "$(cat tests.exit)"
+
+      - name: Render summary
+        if: always()
+        run: |
+          set +e
+          EXIT=$(cat tests.exit 2>/dev/null || echo 0)
+          FAILED=$(grep -cE '✕|FAIL |Tests: .*failed' tests.log 2>/dev/null || echo 0)
+          {
+            echo "## Tests"
+            echo ""
+            if [ "$EXIT" -eq 0 ]; then
+              echo "Suite verde."
+            else
+              echo "**Testes falharam.** Trecho final:"
+              echo ""
+              echo '```'
+              tail -60 tests.log
+              echo '```'
+            fi
+            echo ""
+            echo "> Artifact completo: \`tests-log\`"
+          } > details.md
+          cat details.md >> "$GITHUB_STEP_SUMMARY"
+          STATUS=success
+          [ "$EXIT" -ne 0 ] && STATUS=failure
+          jq -n \
+            --arg tool "Tests" \
+            --arg status "$STATUS" \
+            --arg summary "$([ "$STATUS" = "success" ] && echo 'passou' || echo "falhas detectadas")" \
+            --rawfile details details.md \
+            '{tool: $tool, status: $status, summary: $summary, details: $details}' \
+            > counts-tests.json
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-log
+          path: tests.log
+          retention-days: 15
+
+      - name: Upload counts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: counts-tests
+          path: counts-tests.json
+          retention-days: 7
+
+      - name: Propagate status
+        if: always() && steps.scan.outcome == 'failure'
+        run: exit 1
 
   # ===========================================================================
   # Pipeline (chama base.yml)
