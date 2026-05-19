@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   ci:
-    uses: widesoftware-dev/github-workflows/.github/workflows/go.yml@v1.7.0
+    uses: widesoftware-dev/github-workflows/.github/workflows/go.yml@v1.7.1
     secrets: inherit
     with:
       # ----- obrigatorios ---------------------------------------------------

@@ -109,7 +109,7 @@ jobs:
   # go-version-file (se passado) tem prioridade sobre go-version.
   # ===========================================================================
   test:
-    name: Test (Go ${{ inputs.go-version }})
+    name: Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

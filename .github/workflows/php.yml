@@ -110,7 +110,7 @@ jobs:
   # Cache do composer baseado em composer.lock. Testes rodam por ultimo.
   # ===========================================================================
   test:
-    name: Test (PHP ${{ inputs.php-version }})
+    name: Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
