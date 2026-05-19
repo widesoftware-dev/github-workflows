@@ -194,9 +194,41 @@ permissions:
   id-token: write       # obrigatório se auth-method: gcp-wif
   pull-requests: write  # obrigatório pro pr-report comentar no PR
   packages: write       # obrigatório se push pra ghcr.io
+  actions: read         # obrigatório pro pr-report ler logs de jobs falhos
 ```
 
 Esse bloco está em todos os `examples/consumer-*.yml`.
+
+## ⚠️ Secrets cross-org: `secrets: inherit` não basta
+
+`secrets: inherit` **não propaga organization secrets** quando o reusable workflow vive em uma org diferente da do caller. O caller precisa **passar explicitamente** cada org secret que o reusable usar:
+
+```yaml
+jobs:
+  ci:
+    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.4.1
+    secrets:
+      GITOPS_APP_PRIVATE_KEY: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
+      # SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
+      # REGISTRY_USERNAME:  ${{ secrets.REGISTRY_USERNAME }}
+      # REGISTRY_PASSWORD:  ${{ secrets.REGISTRY_PASSWORD }}
+      # SMTP_HOST:          ${{ secrets.SMTP_HOST }}
+      # ...
+```
+
+A `secrets.*` context dentro do caller resolve org secrets normalmente — só não os repassa via `inherit` em cenário cross-org. Variables (`vars.*`) seguem regras diferentes e funcionam com inherit. Repo-level secrets também passam normalmente.
+
+## Convenção de naming `-prod` / `-homolog`
+
+Padrão recomendado pra clientes Widesoftware: aplicar o sufixo do environment **no `image-name` e no path do registry** simultaneamente. Resultado final por evento:
+
+| Evento | image-name | registry | image-tag | Ref completo |
+|---|---|---|---|---|
+| `tag v*` | `<repo>-prod` | `<host>/<project>/<repo>-prod` | `<ref_name>` | `.../<repo>-prod/<repo>-prod:v1.0.0` |
+| `push homolog` | `<repo>-homolog` | `<host>/<project>/<repo>-homolog` | `<run_id>` | `.../<repo>-homolog/<repo>-homolog:1234567890` |
+| `pull_request` / `push main` | (n/a — sem push) |
+
+O `gitops-bump` derive `{env}` (prod/homolog) automaticamente do `github.ref`/`event_name`. O `gitops-path-template` default `{repo}-{env}/kustomization.yaml` espera que o GitOps repo tenha **dois diretórios separados** por env, cada um com `newName` apontando pro path duplo. Veja `examples/consumer-nestjs.yml` pro template completo de uma adoção real.
 
 ## 6. Como adotar em um repo cliente
 
@@ -350,6 +382,10 @@ Renovate abre PR a cada nova tag publicada.
 | `Permission denied: composer audit` falha em vuln conhecida sem patch | Dep transitiva sem versão segura | Setar `run-dependency-scan: false` temporariamente e abrir issue pra bump |
 | Workflow não encontra `base.yml` | Path errado ou versão ainda não taggeada | Pinar em tag que já existe (`v1.0.0`+) |
 | `actionlint` reclama de expressão | Sintaxe inválida em `if:` ou interpolação | Rodar `actionlint` local: `brew install actionlint && actionlint` |
+| `Error: Input required and not supplied: private-key` no `gitops-bump` | `secrets: inherit` não propagou org secret cross-org | Passar explicitamente — veja a seção "Secrets cross-org" |
+| `startup_failure` em segundos, sem nenhum job rodar | Caller sem bloco `permissions:`, ou reusable pede permission que o caller não concede | Garantir o bloco `permissions:` (em "Caller permissions"); incluir `id-token: write` se WIF, `actions: read` pro pr-report |
+| `syntax error: unexpected "("` dentro do Semgrep | Reusable < `v1.3.1` usando array bash em container `sh` | Bumpar pin pra `v1.3.1`+ |
+| `gitops-bump` falha com "kustomization nao encontrado" | Path no GitOps repo não bate com `gitops-path-template` resolvido | Criar `<repo>-prod/kustomization.yaml` e `<repo>-homolog/kustomization.yaml` no GitOps repo, com `newName` apontando pro path duplo |
 
 ---
 
