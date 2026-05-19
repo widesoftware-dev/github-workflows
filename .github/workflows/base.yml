@@ -634,6 +634,18 @@ jobs:
       # Auth no registry. Dois modos:
       #   docker-login (padrao) — user/password via secrets.
       #   gcp-wif               — OIDC -> access token GCP -> docker login.
+      #
+      # IMPORTANTE: o registry input pode incluir path (ex:
+      # 'host/project/repo-prod'). docker/login-action registra a auth na
+      # CHAVE EXATA que voce passar, e o trivy/docker pull procuram pela
+      # CHAVE DO HOST RAIZ. Logar no path completo faz funcionar push, mas
+      # quebra pull (trivy nao encontra a auth). Extraimos o host raiz.
+      - name: Resolve registry host
+        id: registry-host
+        env:
+          REGISTRY: ${{ inputs.registry }}
+        run: echo "host=${REGISTRY%%/*}" >> "$GITHUB_OUTPUT"
+
       - name: Auth GCP (WIF)
         id: gcp-auth
         if: inputs.do-push && inputs.auth-method == 'gcp-wif'
@@ -647,7 +659,7 @@ jobs:
         if: inputs.do-push && inputs.auth-method == 'gcp-wif'
         uses: docker/login-action@v3
         with:
-          registry: ${{ inputs.registry }}
+          registry: ${{ steps.registry-host.outputs.host }}
           username: oauth2accesstoken
           password: ${{ steps.gcp-auth.outputs.access_token }}
 
@@ -655,7 +667,7 @@ jobs:
         if: inputs.do-push && inputs.auth-method == 'docker-login'
         uses: docker/login-action@v3
         with:
-          registry: ${{ inputs.registry }}
+          registry: ${{ steps.registry-host.outputs.host }}
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
@@ -737,6 +749,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Resolve registry host
+        id: registry-host
+        env:
+          REGISTRY: ${{ inputs.registry }}
+        run: echo "host=${REGISTRY%%/*}" >> "$GITHUB_OUTPUT"
+
       - name: Auth GCP (WIF)
         id: gcp-auth
         if: inputs.auth-method == 'gcp-wif'
@@ -750,7 +768,7 @@ jobs:
         if: inputs.auth-method == 'gcp-wif'
         uses: docker/login-action@v3
         with:
-          registry: ${{ inputs.registry }}
+          registry: ${{ steps.registry-host.outputs.host }}
           username: oauth2accesstoken
           password: ${{ steps.gcp-auth.outputs.access_token }}
 
