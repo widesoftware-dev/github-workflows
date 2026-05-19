@@ -742,7 +742,10 @@ jobs:
   # ===========================================================================
   container-scan:
     name: Container scan
-    if: always() && needs.build-push.result == 'success'
+    # So roda se imagem foi efetivamente pushada (do-push=true E build success).
+    # Em PR validation com do-push=false, nao existe imagem no registry pra trivy
+    # puxar — alem disso, sem skip aqui o trivy retorna MANIFEST_UNKNOWN.
+    if: always() && needs.build-push.outputs.build-pushed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: build-push
