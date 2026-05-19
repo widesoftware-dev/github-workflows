@@ -476,7 +476,7 @@ jobs:
   # Test — pula se test-command vazio.
   # ===========================================================================
   test:
-    name: Test (Node ${{ inputs.node-version }})
+    name: Tests
     if: inputs.test-command != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
