@@ -219,6 +219,12 @@ permissions:
   pull-requests: write
   id-token: write
 
+# Silencia warnings de actions ainda em Node 20. GitHub forca Node 24
+# em 2026-06-02; setar isso agora antecipa o comportamento e remove o ruido
+# dos logs sem precisar bumpar versao de cada action individualmente.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 # Cancela runs anteriores na mesma ref (PR ou branch) quando vier push novo.
 concurrency:
   group: base-${{ github.workflow }}-${{ github.ref }}
@@ -588,14 +594,17 @@ jobs:
   # recebe organization secrets do caller; composite action recebe.
 
   # ===========================================================================
-  # 7. PR REPORT
+  # 7. REPORT
   # ---------------------------------------------------------------------------
-  # So roda em PRs. Em failure, posta (ou atualiza) um comentario com tabela
-  # dos jobs e seus resultados. Marker HTML permite idempotencia: ao reabrir o
-  # PR ou rodar novamente, o mesmo comentario eh editado em vez de criar outro.
+  # Roda SEMPRE no fim do pipeline (qualquer status). Gera:
+  #   - Step Summary no run (visivel em qualquer evento — tag, push, PR).
+  #   - Comentario no PR (so quando event_name == 'pull_request').
+  #
+  # Marker HTML no comentario garante idempotencia: re-runs editam o mesmo
+  # comentario em vez de criar novos.
   # ===========================================================================
   pr-report:
-    name: PR report
+    name: Report
     runs-on: ubuntu-latest
     needs:
       - secrets-scan
@@ -605,25 +614,13 @@ jobs:
       - dependency-scan-rust
       - build-push
       - container-scan
-    if: |
-      always() &&
-      inputs.pr-report &&
-      github.event_name == 'pull_request' &&
-      (
-        needs.secrets-scan.result == 'failure' ||
-        needs.sast.result == 'failure' ||
-        needs.vuln-scan-fs.result == 'failure' ||
-        needs.vuln-scan-config.result == 'failure' ||
-        needs.dependency-scan-rust.result == 'failure' ||
-        needs.build-push.result == 'failure' ||
-        needs.container-scan.result == 'failure'
-      )
+    if: always() && inputs.pr-report
     permissions:
       contents: read
       pull-requests: write
       actions: read
     steps:
-      - name: Comment failure summary on PR
+      - name: Build report (step summary + PR comment)
         uses: actions/github-script@v9
         env:
           SECRETS_RESULT: ${{ needs.secrets-scan.result }}
@@ -635,6 +632,7 @@ jobs:
           CONTAINER_RESULT: ${{ needs.container-scan.result }}
         with:
           script: |
+            const fs = require('fs');
             const { owner, repo } = context.repo;
             const runId = context.runId;
             const results = {
@@ -654,26 +652,49 @@ jobs:
               .map(([n, r]) => `| ${icon(r)} | **${n}** | \`${r}\` |`).join('\n');
             const failed = Object.entries(results)
               .filter(([, r]) => r === 'failure').map(([n]) => n);
-            const marker = '<!-- ci-failure-report -->';
-            const body = [
-              marker,
-              '## ❌ CI falhou',
+            const passed = Object.entries(results)
+              .filter(([, r]) => r === 'success').map(([n]) => n);
+            const hasFailure = failed.length > 0;
+
+            const header = hasFailure
+              ? `## ❌ CI falhou — ${failed.length} job(s) com erro`
+              : '## ✅ CI verde';
+            const sha7 = context.sha.substring(0, 7);
+            const lines = [
+              header,
               '',
-              `Commit: \`${context.sha.substring(0, 7)}\` · [Ver run](${runUrl})`,
+              `Commit \`${sha7}\` · [ver run](${runUrl})`,
               '',
-              failed.length ? `**Jobs com falha:** ${failed.map(n => `\`${n}\``).join(', ')}` : '',
+              hasFailure ? `**Jobs com falha:** ${failed.map(n => `\`${n}\``).join(', ')}` : `**Todos os jobs passaram** (${passed.length} verde${passed.length === 1 ? '' : 's'}).`,
               '',
               '| | Job | Resultado |',
               '|---|---|---|',
               rows,
+            ];
+
+            // Step Summary — visivel em qualquer evento.
+            const summary = lines.join('\n') + '\n';
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+
+            // Comentario no PR — so em pull_request event.
+            if (context.eventName !== 'pull_request') {
+              core.info('Nao e um PR event — pulando comentario, report ficou no step summary.');
+              return;
+            }
+
+            const marker = '<!-- ci-report -->';
+            const body = [
+              marker,
+              ...lines,
               '',
               '<sub>Comentário gerado por `widesoftware-dev/github-workflows`.</sub>',
-            ].filter(Boolean).join('\n');
+            ].join('\n');
 
             const { data: comments } = await github.rest.issues.listComments({
               owner, repo, issue_number: context.issue.number, per_page: 100,
             });
-            const existing = comments.find(c => c.body && c.body.includes(marker));
+            // Aceita o marker novo e o antigo (compat com runs pre-v1.6).
+            const existing = comments.find(c => c.body && (c.body.includes(marker) || c.body.includes('<!-- ci-failure-report -->')));
             if (existing) {
               await github.rest.issues.updateComment({
                 owner, repo, comment_id: existing.id, body,
