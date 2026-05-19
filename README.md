@@ -104,7 +104,6 @@ Núcleo do pipeline. Pode ser chamado direto (sem testes de linguagem) ou via os
 | `run-vuln-scan` | boolean | `true` | Trivy FS + Trivy Config |
 | `run-sast` | boolean | `true` | Semgrep |
 | `run-dependency-scan` | boolean | `true` | Composer/Yarn audit (efeito nos wrappers) |
-| `run-container-scan` | boolean | `true` | Trivy na imagem buildada |
 | `semgrep-configs` | string | `p/owasp-top-ten` | Configs Semgrep (separadas por espaço) |
 | `pr-report` | boolean | `true` | Gera **Step Summary em todo run** e, se for PR, posta/atualiza comentário com tabela de jobs |
 | `notify-channel` | string | `none` | `none` \| `slack` \| `email` \| `both` |
@@ -114,7 +113,29 @@ Núcleo do pipeline. Pode ser chamado direto (sem testes de linguagem) ou via os
 | `auth-method` | string | `docker-login` | `docker-login` (user/pass) ou `gcp-wif` (OIDC pra GCP Artifact Registry) |
 | `gcp-workload-identity-provider` | string | `''` | WIF provider full path. Só `gcp-wif` |
 | `gcp-service-account` | string | `''` | Email da SA GCP. Só `gcp-wif` |
-| `cargo-audit-paths` | string | `''` | Diretórios com `Cargo.lock` separados por vírgula (ex: `blockchain`). Roda `cargo audit` em cada. Pula se vazio |
+
+A partir de `v1.8.0`:
+- **Lint e container scan são obrigatórios** (sem inputs pra desligar). Lint exige `lint-command`.
+- **Cargo audit não está mais no reusable** — virou composite action chamada em job próprio. Veja [Cargo audit — composite action](#cargo-audit--composite-action).
+
+### Cargo audit — composite action
+
+A partir de `v1.8.0`, `cargo audit` saiu do reusable workflow e virou composite action. Clientes que não têm Rust não precisam declarar nada (o step não aparece skipped na sidebar). Quem tem monorepo Node+Rust, declara um job:
+
+```yaml
+jobs:
+  ci:
+    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.8.0
+    ...
+  cargo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: widesoftware-dev/github-workflows/.github/actions/cargo-audit@v1.8.0
+        with:
+          paths: 'blockchain'   # ou 'contracts,cli' (csv)
+```
+
+Emite `counts-cargo-audit.json`, fundido com os outros no `Report` job do reusable.
 
 ### GitOps bump — composite action
 
@@ -291,11 +312,12 @@ Cada scan tem um toggle. Cliente novo herda tudo ligado. Cliente legado pode des
 
 | Toggle | Desliga quando | Como religar |
 |---|---|---|
-| `run-secrets-scan` | gitleaks acusou falsos positivos antigos | Adicionar `.gitleaks.toml` com `allowlist`, depois ativar |
+| `run-secrets-scan` | **obrigatório a partir de v1.8.0** — não desligue. Falso positivo vai pra `.gitleaks.toml`. |
 | `run-vuln-scan` | Trivy quebra em CVE conhecidos sem patch | Rodar `composer/yarn update`, depois ativar |
 | `run-sast` | Semgrep quebra em padrões legados | Refatorar pontos críticos, ou adicionar `.semgrepignore`, depois ativar |
 | `run-dependency-scan` | `composer/yarn audit` quebra em deps desatualizadas | Bump das deps, depois ativar |
-| `run-container-scan` | Imagem base tem CVEs antigos | Atualizar base do Dockerfile, depois ativar |
+| Container scan | **obrigatório a partir de v1.8.0** — sempre roda. Resolva CVEs no Dockerfile base. |
+| Cargo audit | **opt-in** a partir de v1.8.0 — composite action; só declare o job se tiver `Cargo.lock`. |
 
 **Recomendação**: ativar 1 toggle por sprint. Não desligue tudo e nunca religue.
 

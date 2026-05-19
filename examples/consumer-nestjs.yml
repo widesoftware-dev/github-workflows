@@ -31,7 +31,7 @@ permissions:
 
 jobs:
   ci:
-    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.7.1
+    uses: widesoftware-dev/github-workflows/.github/workflows/node.yml@v1.8.0
     secrets: inherit
     with:
       # image-name = <repo>-<env>.
@@ -59,7 +59,6 @@ jobs:
       test-command: 'pnpm test'
 
       semgrep-configs: 'p/owasp-top-ten p/typescript p/nodejs'
-      # cargo-audit-paths: 'blockchain'
 
       # auth-method: 'gcp-wif'
       # gcp-workload-identity-provider: 'projects/123/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
@@ -68,6 +67,15 @@ jobs:
       notify-channel: slack
       notify-on: failure
       slack-channel: '#ci-cliente-a'
+
+  # OPCIONAL: cargo audit pra monorepos Node+Rust (ex: contratos CosmWasm).
+  # Composite action — declare se o repo tem subdiretorio com Cargo.lock.
+  # cargo:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: widesoftware-dev/github-workflows/.github/actions/cargo-audit@v1.8.0
+  #       with:
+  #         paths: 'blockchain'
 
   # GitOps bump roda em tag v* (env=prod) ou push em homolog (env=homolog).
   # Composite action recebe a private key como input — secrets do caller
@@ -86,7 +94,7 @@ jobs:
       )
     runs-on: ubuntu-latest
     steps:
-      - uses: widesoftware-dev/github-workflows/.github/actions/gitops-bump@v1.7.1
+      - uses: widesoftware-dev/github-workflows/.github/actions/gitops-bump@v1.8.0
         with:
           gitops-repo: 'org/microservice-ops'
           app-id: ${{ vars.APP_ID }}

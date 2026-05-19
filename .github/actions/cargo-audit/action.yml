@@ -1,0 +1,114 @@
+# ============================================================================
+# cargo-audit — composite action pra rodar `cargo audit` em um ou mais
+# diretorios com Cargo.lock (monorepos Node+Rust, ex: NestJS + CosmWasm).
+#
+# Por que composite e nao parte do reusable workflow:
+#   So clientes com Rust precisam disso. Quando o job vive no reusable, ele
+#   aparece como 'skipped' na sidebar pra todos os outros — ruido visual.
+#   Composite action so executa no caller que explicitamente declarar um job
+#   chamando-a.
+#
+# Emite os mesmos artifacts/summary que os scans do base.yml:
+#   - GITHUB_STEP_SUMMARY com ## Cargo audit
+#   - counts-cargo-audit.json (carregado pelo Report job do reusable)
+#   - cargo-audit-log (artifact)
+# ============================================================================
+name: Cargo audit
+description: Run cargo audit on one or more Cargo.lock paths and emit a per-tool report block.
+
+inputs:
+  paths:
+    description: 'Diretorios com Cargo.lock, separados por virgula (ex: "blockchain" ou "contracts,cli").'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+
+    - name: Cache cargo advisory db
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/advisory-db
+        key: cargo-advisory-db-v1
+
+    - name: Install cargo-audit
+      shell: bash
+      run: cargo install cargo-audit --locked
+
+    - name: Run cargo audit
+      id: scan
+      shell: bash
+      env:
+        PATHS: ${{ inputs.paths }}
+      run: |
+        set +e
+        : > cargo-audit.log
+        FAIL=0
+        IFS=',' read -ra DIRS <<< "$PATHS"
+        for dir in "${DIRS[@]}"; do
+          dir=$(echo "$dir" | xargs)
+          [ -z "$dir" ] && continue
+          echo "::group::cargo audit em $dir"
+          (cd "$dir" && cargo audit) 2>&1 | tee -a cargo-audit.log
+          S="${PIPESTATUS[0]}"
+          [ "$S" -ne 0 ] && FAIL=1
+          echo "::endgroup::"
+        done
+        exit "$FAIL"
+      continue-on-error: true
+
+    - name: Render summary
+      if: always()
+      shell: bash
+      env:
+        PATHS: ${{ inputs.paths }}
+        OUTCOME: ${{ steps.scan.outcome }}
+      run: |
+        set +e
+        {
+          echo "## Cargo audit"
+          echo ""
+          if [ "$OUTCOME" = "success" ]; then
+            echo "Nenhuma vulnerabilidade conhecida em \`$PATHS\`."
+          else
+            echo "**Vulnerabilidades em \`$PATHS\`.** Trecho final:"
+            echo ""
+            echo '```'
+            tail -50 cargo-audit.log
+            echo '```'
+          fi
+          echo ""
+          echo "> Artifact: \`cargo-audit-log\`"
+        } > details.md
+        cat details.md >> "$GITHUB_STEP_SUMMARY"
+        STATUS=success
+        [ "$OUTCOME" = "failure" ] && STATUS=failure
+        jq -n \
+          --arg tool "Cargo audit" \
+          --arg status "$STATUS" \
+          --arg summary "$([ "$STATUS" = "success" ] && echo 'limpo' || echo 'vulns encontradas')" \
+          --rawfile details details.md \
+          '{tool: $tool, status: $status, summary: $summary, details: $details}' \
+          > counts-cargo-audit.json
+
+    - name: Upload log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: cargo-audit-log
+        path: cargo-audit.log
+        retention-days: 15
+
+    - name: Upload counts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: counts-cargo-audit
+        path: counts-cargo-audit.json
+        retention-days: 7
+
+    - name: Propagate status
+      if: always() && steps.scan.outcome == 'failure'
+      shell: bash
+      run: exit 1

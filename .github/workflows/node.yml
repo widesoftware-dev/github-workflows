@@ -45,10 +45,9 @@ on:
         type: string
         default: ''
       lint-command:
-        description: 'Comando de lint. Vazio = pula o job lint.'
-        required: false
+        description: 'Comando de lint. Obrigatorio — convencao Widesoftware exige lint sempre rodando.'
+        required: true
         type: string
-        default: ''
       typecheck-command:
         description: 'Comando de typecheck. Vazio = pula o job typecheck.'
         required: false
@@ -75,7 +74,6 @@ on:
       run-vuln-scan:       { required: false, type: boolean, default: true }
       run-sast:            { required: false, type: boolean, default: true }
       run-dependency-scan: { required: false, type: boolean, default: true }
-      run-container-scan:  { required: false, type: boolean, default: true }
       semgrep-configs:   { required: false, type: string, default: 'p/owasp-top-ten p/typescript p/react' }
       pr-report:         { required: false, type: boolean, default: true }
       notify-channel:    { required: false, type: string, default: 'none' }
@@ -85,7 +83,6 @@ on:
       auth-method:                { required: false, type: string, default: 'docker-login' }
       gcp-workload-identity-provider: { required: false, type: string, default: '' }
       gcp-service-account:        { required: false, type: string, default: '' }
-      cargo-audit-paths:          { required: false, type: string, default: '' }
 
     secrets:
       REGISTRY_USERNAME:    { required: false }
@@ -249,11 +246,10 @@ jobs:
         run: exit 1
 
   # ===========================================================================
-  # Lint — pula se lint-command vazio.
+  # Lint — obrigatorio. Roda sempre; falha o job se lint-command sair != 0.
   # ===========================================================================
   lint:
     name: Lint
-    if: inputs.lint-command != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -629,7 +625,6 @@ jobs:
       run-vuln-scan:       ${{ inputs.run-vuln-scan }}
       run-sast:            ${{ inputs.run-sast }}
       run-dependency-scan: ${{ inputs.run-dependency-scan }}
-      run-container-scan:  ${{ inputs.run-container-scan }}
       semgrep-configs:     ${{ inputs.semgrep-configs }}
       pr-report:           ${{ inputs.pr-report }}
       notify-channel:      ${{ inputs.notify-channel }}
@@ -639,4 +634,3 @@ jobs:
       auth-method:                    ${{ inputs.auth-method }}
       gcp-workload-identity-provider: ${{ inputs.gcp-workload-identity-provider }}
       gcp-service-account:            ${{ inputs.gcp-service-account }}
-      cargo-audit-paths:              ${{ inputs.cargo-audit-paths }}
