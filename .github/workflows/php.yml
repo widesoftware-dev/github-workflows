@@ -51,7 +51,12 @@ on:
         type: boolean
         default: false
       pre-test-cache-key:
-        description: 'Chave do actions/cache@v4 aplicado antes do pre-test-command. Vazio = sem cache. Pra invalidacao por hash de arquivo, combine hashFiles(...) na expressao do caller.'
+        description: 'Prefixo da chave do actions/cache@v4 aplicado antes do pre-test-command. Vazio = sem cache. Se pre-test-cache-key-files for setado, a key final vira `<prefixo>-<hashFiles(...)>`.'
+        required: false
+        type: string
+        default: ''
+      pre-test-cache-key-files:
+        description: 'Glob/paths usados pra computar hash interno e anexar a pre-test-cache-key. Permite invalidar cache quando arquivos-fonte mudam (ex: dump SQL, lockfile). Aceita newline-separated. hashFiles nao funciona no `with:` do caller — por isso o reusable computa.'
         required: false
         type: string
         default: ''
@@ -381,7 +386,9 @@ jobs:
         if: inputs.pre-test-cache-key != ''
         uses: actions/cache@v4
         with:
-          key: ${{ inputs.pre-test-cache-key }}
+          # Compoe a key final. Se pre-test-cache-key-files != '', anexa o
+          # hashFiles desses paths pra invalidar quando os arquivos mudam.
+          key: ${{ inputs.pre-test-cache-key-files != '' && format('{0}-{1}', inputs.pre-test-cache-key, hashFiles(inputs.pre-test-cache-key-files)) || inputs.pre-test-cache-key }}
           path: ${{ inputs.pre-test-cache-paths }}
           restore-keys: ${{ inputs.pre-test-cache-restore-keys }}
 
