@@ -171,6 +171,21 @@ on:
         type: string
         default: ''
 
+      # Login adicional pra puxar a imagem-base do Dockerfile quando ela
+      # mora num registry diferente do de push (ou quando do-push=false e
+      # ainda assim o FROM precisa de auth — ex: validacao em PR contra
+      # imagem-base privada em OCIR/GHCR/etc).
+      extra-registry-host:
+        description: 'Host do registry adicional pro login pre-build (ex: ocir.io). Vazio = sem login extra.'
+        required: false
+        type: string
+        default: ''
+      extra-registry-username:
+        description: 'Username do registry adicional. So usado se extra-registry-host != "".'
+        required: false
+        type: string
+        default: ''
+
       # Cargo audit foi extraido pra composite action — chame
       # widesoftware-dev/github-workflows/.github/actions/cargo-audit@<tag>
       # em um job proprio do caller. Razao: so monorepos com Rust precisam,
@@ -204,6 +219,8 @@ on:
       REGISTRY_USERNAME:
         required: false
       REGISTRY_PASSWORD:
+        required: false
+      EXTRA_REGISTRY_PASSWORD:
         required: false
       SLACK_WEBHOOK_URL:
         required: false
@@ -678,6 +695,16 @@ jobs:
           registry: ${{ steps.registry-host.outputs.host }}
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      # Login adicional pra puxar a imagem-base do Dockerfile. Roda mesmo
+      # quando do-push=false, pois o build precisa de auth pra resolver o FROM.
+      - name: Extra registry login (base image)
+        if: inputs.extra-registry-host != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.extra-registry-host }}
+          username: ${{ inputs.extra-registry-username }}
+          password: ${{ secrets.EXTRA_REGISTRY_PASSWORD }}
 
       # Resolve cache-from/cache-to multilinha baseado em docker-cache-mode.
       # Inputs em multilinha YAML aceitam string com \n separando entradas.
