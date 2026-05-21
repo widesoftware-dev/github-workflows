@@ -146,8 +146,11 @@ jobs:
 
       # Dependency scan: composer audit. Bloqueia em vulnerabilidades.
       # Pulado se run-dependency-scan=false (cliente legado).
+      # block-on-failure=false (homolog) => scan roda mas nao quebra o job,
+      # mantendo paridade com os scans do base.yml.
       - name: Composer audit
         if: inputs.run-dependency-scan
+        continue-on-error: ${{ !inputs.block-on-failure }}
         run: composer audit --no-dev --format=plain
 
       - name: Code style (Pint)
