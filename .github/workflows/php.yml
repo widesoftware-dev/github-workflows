@@ -45,6 +45,26 @@ on:
         required: false
         type: string
         default: ''
+      pre-test-setup-buildx:
+        description: 'Habilita docker/setup-buildx-action@v3 (driver docker-container) antes do pre-test-command. Necessario pra que builds dentro do pre-test usem `--cache-from/--cache-to type=gha`.'
+        required: false
+        type: boolean
+        default: false
+      pre-test-cache-key:
+        description: 'Chave do actions/cache@v4 aplicado antes do pre-test-command. Vazio = sem cache. Pra invalidacao por hash de arquivo, combine hashFiles(...) na expressao do caller.'
+        required: false
+        type: string
+        default: ''
+      pre-test-cache-paths:
+        description: 'Paths (newline-separated) cacheados por actions/cache. So usado se pre-test-cache-key != "".'
+        required: false
+        type: string
+        default: ''
+      pre-test-cache-restore-keys:
+        description: 'restore-keys (newline-separated) do actions/cache. Opcional.'
+        required: false
+        type: string
+        default: ''
       run-static-analysis:
         description: 'Roda phpstan/larastan (vendor/bin/phpstan analyse).'
         required: false
@@ -347,6 +367,24 @@ jobs:
           retention-days: 15
 
       # ---------- Tests (phpunit) ------------------------------------------
+      # Cache + buildx opcionais ANTES do pre-test-command. Cobrem:
+      #   - layers do `docker buildx build --cache-from/to type=gha` no setup
+      #     (buildx setup exporta as envs do cache GHA).
+      #   - datadir de mysql, fixtures, vendor extra etc via actions/cache.
+      - name: Setup Buildx (pre-test)
+        if: inputs.pre-test-setup-buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+
+      - name: Pre-test cache
+        if: inputs.pre-test-cache-key != ''
+        uses: actions/cache@v4
+        with:
+          key: ${{ inputs.pre-test-cache-key }}
+          path: ${{ inputs.pre-test-cache-paths }}
+          restore-keys: ${{ inputs.pre-test-cache-restore-keys }}
+
       # pre-test-command roda antes do phpunit pra preparar o ambiente
       # (mysql/redis, fixtures, etc). Falha aqui aborta o step seguinte e
       # marca o outcome do phpunit como skipped no Propagate final.
