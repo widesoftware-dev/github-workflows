@@ -144,13 +144,12 @@ jobs:
           # shellcheck disable=SC2086
           composer install $ARGS
 
-      # Dependency scan: composer audit. Bloqueia em vulnerabilidades.
+      # Dependency scan: composer audit. Sempre bloqueia em vulnerabilidades
+      # (vermelho visivel). O job `pipeline` agora roda mesmo com `test` falho
+      # (if: always()), entao Report consolidado ainda gera no PR.
       # Pulado se run-dependency-scan=false (cliente legado).
-      # block-on-failure=false (homolog) => scan roda mas nao quebra o job,
-      # mantendo paridade com os scans do base.yml.
       - name: Composer audit
         if: inputs.run-dependency-scan
-        continue-on-error: ${{ !inputs.block-on-failure }}
         run: composer audit --no-dev --format=plain
 
       - name: Code style (Pint)
@@ -169,12 +168,16 @@ jobs:
   # ===========================================================================
   # Pipeline (chama base.yml)
   # ---------------------------------------------------------------------------
-  # needs: test => se test falhar, base.yml nao roda.
+  # needs: test + if: always() => pipeline roda mesmo com test falho, garantindo
+  # que scans paralelos + Report consolidado sempre gerem feedback no PR.
+  # `tests-passed` propaga o resultado do test pro `base.yml`, que usa esse gate
+  # adicional pra impedir build-push quando o test falhou.
   # secrets: inherit repassa todos os secrets do caller pro base.
   # ===========================================================================
   pipeline:
     name: Pipeline
     needs: test
+    if: always() && needs.test.result != 'cancelled' && needs.test.result != 'skipped'
     uses: ./.github/workflows/base.yml
     secrets: inherit
     permissions:
@@ -193,6 +196,7 @@ jobs:
       platforms:           ${{ inputs.platforms }}
       do-push:             ${{ inputs.do-push }}
       block-on-failure:    ${{ inputs.block-on-failure }}
+      tests-passed:        ${{ needs.test.result == 'success' }}
       run-secrets-scan:    ${{ inputs.run-secrets-scan }}
       run-vuln-scan:       ${{ inputs.run-vuln-scan }}
       run-sast:            ${{ inputs.run-sast }}

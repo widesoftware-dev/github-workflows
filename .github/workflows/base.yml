@@ -87,6 +87,11 @@ on:
         required: false
         type: boolean
         default: true
+      tests-passed:
+        description: 'Sinaliza se a suite de testes do caller passou. Wrappers (php/node/go) propagam needs.test.result; quando false, build-push e skipped mas scans + Report ainda rodam pra dar visibilidade no PR. Default true mantem compat com callers que nao passam o flag.'
+        required: false
+        type: boolean
+        default: true
 
       # ----- toggles de seguranca ---------------------------------------------
       # Cada toggle pode ser desligado individualmente. Clientes legados
@@ -592,6 +597,7 @@ jobs:
       - vuln-scan-config
     if: |
       always() &&
+      inputs.tests-passed &&
       (
         inputs.block-on-failure == false ||
         (
