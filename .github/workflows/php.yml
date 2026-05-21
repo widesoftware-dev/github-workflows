@@ -50,6 +50,11 @@ on:
         required: false
         type: boolean
         default: false
+      test-timeout-minutes:
+        description: 'Timeout (minutos) do job test. Default 15. Bumpa pra 30+ quando o pre-test-command builda imagens grandes ou popula cache na primeira run.'
+        required: false
+        type: number
+        default: 15
       pre-test-registry-host:
         description: 'Host de registry adicional pra login no job test (ex: imagens privadas usadas pelo docker compose do pre-test). Independente do extra-registry-host que vale pro job build-push.'
         required: false
@@ -156,7 +161,7 @@ jobs:
   test:
     name: Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: ${{ inputs.test-timeout-minutes }}
     steps:
       - uses: actions/checkout@v6
 
