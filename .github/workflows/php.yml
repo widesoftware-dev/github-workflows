@@ -165,6 +165,7 @@ jobs:
           set +e
           composer audit --no-dev --format=plain 2>&1 | tee audit-output.txt
           echo "${PIPESTATUS[0]}" > audit.exit
+          exit "$(cat audit.exit)"
 
       - name: Composer audit summary
         if: always() && inputs.run-dependency-scan
@@ -224,6 +225,7 @@ jobs:
           set +e
           vendor/bin/pint --test 2>&1 | tee pint-output.txt
           echo "${PIPESTATUS[0]}" > pint.exit
+          exit "$(cat pint.exit)"
 
       - name: Pint summary
         if: always() && inputs.run-code-style
@@ -283,6 +285,7 @@ jobs:
           set +e
           vendor/bin/phpstan analyse --no-progress --memory-limit=2G 2>&1 | tee phpstan-output.txt
           echo "${PIPESTATUS[0]}" > phpstan.exit
+          exit "$(cat phpstan.exit)"
 
       - name: Phpstan summary
         if: always() && inputs.run-static-analysis
@@ -345,6 +348,7 @@ jobs:
           set +e
           bash -c "$CMD" 2>&1 | tee phpunit-output.txt
           echo "${PIPESTATUS[0]}" > phpunit.exit
+          exit "$(cat phpunit.exit)"
 
       - name: Phpunit summary
         if: always()
