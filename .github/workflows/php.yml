@@ -77,10 +77,13 @@ on:
       auth-method:                { required: false, type: string, default: 'docker-login' }
       gcp-workload-identity-provider: { required: false, type: string, default: '' }
       gcp-service-account:        { required: false, type: string, default: '' }
+      extra-registry-host:        { required: false, type: string, default: '' }
+      extra-registry-username:    { required: false, type: string, default: '' }
 
     secrets:
-      REGISTRY_USERNAME:    { required: false }
-      REGISTRY_PASSWORD:    { required: false }
+      REGISTRY_USERNAME:       { required: false }
+      REGISTRY_PASSWORD:       { required: false }
+      EXTRA_REGISTRY_PASSWORD: { required: false }
       SLACK_WEBHOOK_URL:    { required: false }
       SMTP_HOST:            { required: false }
       SMTP_PORT:            { required: false }
@@ -471,3 +474,5 @@ jobs:
       auth-method:                    ${{ inputs.auth-method }}
       gcp-workload-identity-provider: ${{ inputs.gcp-workload-identity-provider }}
       gcp-service-account:            ${{ inputs.gcp-service-account }}
+      extra-registry-host:            ${{ inputs.extra-registry-host }}
+      extra-registry-username:        ${{ inputs.extra-registry-username }}
