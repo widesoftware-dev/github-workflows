@@ -646,17 +646,11 @@ jobs:
       - lint
       - typecheck
       - test
-    if: |
-      always() &&
-      (
-        inputs.block-on-failure == false ||
-        (
-          (needs.audit.result     == 'success' || needs.audit.result     == 'skipped') &&
-          (needs.lint.result      == 'success' || needs.lint.result      == 'skipped') &&
-          (needs.typecheck.result == 'success' || needs.typecheck.result == 'skipped') &&
-          (needs.test.result      == 'success' || needs.test.result      == 'skipped')
-        )
-      )
+    # pipeline roda sempre (incluindo se algum check falhou) pra que scans
+    # paralelos + Report consolidado sempre gerem feedback no PR. O gate de
+    # build-push migrou pro base.yml via `tests-passed`, que aqui agrega o
+    # resultado dos 4 jobs (audit/lint/typecheck/test).
+    if: always()
     uses: ./.github/workflows/base.yml
     secrets: inherit
     permissions:
@@ -675,6 +669,11 @@ jobs:
       platforms:           ${{ inputs.platforms }}
       do-push:             ${{ inputs.do-push }}
       block-on-failure:    ${{ inputs.block-on-failure }}
+      tests-passed: >-
+        ${{ (needs.audit.result     == 'success' || needs.audit.result     == 'skipped') &&
+            (needs.lint.result      == 'success' || needs.lint.result      == 'skipped') &&
+            (needs.typecheck.result == 'success' || needs.typecheck.result == 'skipped') &&
+            (needs.test.result      == 'success' || needs.test.result      == 'skipped') }}
       run-secrets-scan:    ${{ inputs.run-secrets-scan }}
       run-vuln-scan:       ${{ inputs.run-vuln-scan }}
       run-sast:            ${{ inputs.run-sast }}
