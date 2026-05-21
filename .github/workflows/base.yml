@@ -255,8 +255,10 @@ jobs:
   secrets-scan:
     name: Secrets scan
     if: inputs.run-secrets-scan
+    # bumped de 5 -> 15 pra acomodar repos legados/grandes onde gitleaks
+    # precisa varrer historico extenso (medico24hs ultrapassou os 5min).
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
         with:
@@ -919,7 +921,9 @@ jobs:
               'Gitleaks',
               'Dependency audit',
               'Lint',
+              'Code style',
               'Typecheck',
+              'Static analysis',
               'Tests',
               'Semgrep SAST',
               'Trivy FS',

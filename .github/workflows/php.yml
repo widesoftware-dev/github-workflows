@@ -144,26 +144,281 @@ jobs:
           # shellcheck disable=SC2086
           composer install $ARGS
 
-      # Dependency scan: composer audit. Sempre bloqueia em vulnerabilidades
-      # (vermelho visivel). O job `pipeline` agora roda mesmo com `test` falho
-      # (if: always()), entao Report consolidado ainda gera no PR.
-      # Pulado se run-dependency-scan=false (cliente legado).
+      # =====================================================================
+      # Checks (composer audit, pint, phpstan, phpunit)
+      # ---------------------------------------------------------------------
+      # Cada check segue o padrao dos scans do base.yml:
+      #   1. step de execucao com continue-on-error: true (captura exit code)
+      #   2. step "summary" if: always() — escreve $GITHUB_STEP_SUMMARY e
+      #      gera counts-<tool>.json (consumido pelo Report consolidado)
+      #   3. upload do report + counts como artifacts (retention-days: 15)
+      #   4. step final "Propagate job status" decide a cor do job em funcao
+      #      do outcome agregado.
+      # =====================================================================
+
+      # ---------- Composer audit -------------------------------------------
       - name: Composer audit
+        id: audit
         if: inputs.run-dependency-scan
-        run: composer audit --no-dev --format=plain
+        continue-on-error: true
+        run: |
+          set +e
+          composer audit --no-dev --format=plain 2>&1 | tee audit-output.txt
+          echo "${PIPESTATUS[0]}" > audit.exit
 
+      - name: Composer audit summary
+        if: always() && inputs.run-dependency-scan
+        run: |
+          set +e
+          EXIT=$(cat audit.exit 2>/dev/null || echo 0)
+          COUNT=$(grep -c '^Package: ' audit-output.txt 2>/dev/null || echo 0)
+          {
+            echo "## Composer audit"
+            echo ""
+            if [ "$EXIT" -eq 0 ]; then
+              echo "Sem vulnerabilidades reportadas."
+            else
+              echo "**${COUNT} vulnerabilidade(s) reportada(s).**"
+              echo ""
+              echo '```'
+              head -200 audit-output.txt
+              echo '```'
+            fi
+            echo ""
+            echo "> Artifact: \`composer-audit-report\`"
+          } > audit-details.md
+          cat audit-details.md >> "$GITHUB_STEP_SUMMARY"
+          STATUS=success
+          [ "$EXIT" -ne 0 ] && STATUS=failure
+          jq -n \
+            --arg tool "Dependency audit" \
+            --arg status "$STATUS" \
+            --arg summary "${COUNT} vulnerabilidade(s)" \
+            --rawfile details audit-details.md \
+            '{tool:$tool,status:$status,summary:$summary,details:$details}' \
+            > counts-audit.json
+
+      - name: Upload composer audit report
+        if: always() && inputs.run-dependency-scan
+        uses: actions/upload-artifact@v4
+        with:
+          name: composer-audit-report
+          path: audit-output.txt
+          retention-days: 15
+          if-no-files-found: ignore
+
+      - name: Upload composer audit counts
+        if: always() && inputs.run-dependency-scan
+        uses: actions/upload-artifact@v4
+        with:
+          name: counts-audit
+          path: counts-audit.json
+          retention-days: 15
+
+      # ---------- Code style (Pint) ----------------------------------------
       - name: Code style (Pint)
+        id: pint
         if: inputs.run-code-style
-        run: vendor/bin/pint --test
+        continue-on-error: true
+        run: |
+          set +e
+          vendor/bin/pint --test 2>&1 | tee pint-output.txt
+          echo "${PIPESTATUS[0]}" > pint.exit
 
+      - name: Pint summary
+        if: always() && inputs.run-code-style
+        run: |
+          set +e
+          EXIT=$(cat pint.exit 2>/dev/null || echo 0)
+          COUNT=$(grep -cE '^\s*[⨯×]' pint-output.txt 2>/dev/null || echo 0)
+          {
+            echo "## Code style (Pint)"
+            echo ""
+            if [ "$EXIT" -eq 0 ]; then
+              echo "Estilo OK."
+            else
+              echo "**${COUNT} arquivo(s) fora do padrao.**"
+              echo ""
+              echo '```'
+              head -200 pint-output.txt
+              echo '```'
+            fi
+            echo ""
+            echo "> Artifact: \`pint-report\`"
+          } > pint-details.md
+          cat pint-details.md >> "$GITHUB_STEP_SUMMARY"
+          STATUS=success
+          [ "$EXIT" -ne 0 ] && STATUS=failure
+          jq -n \
+            --arg tool "Code style" \
+            --arg status "$STATUS" \
+            --arg summary "${COUNT} arquivo(s)" \
+            --rawfile details pint-details.md \
+            '{tool:$tool,status:$status,summary:$summary,details:$details}' \
+            > counts-codestyle.json
+
+      - name: Upload pint report
+        if: always() && inputs.run-code-style
+        uses: actions/upload-artifact@v4
+        with:
+          name: pint-report
+          path: pint-output.txt
+          retention-days: 15
+          if-no-files-found: ignore
+
+      - name: Upload pint counts
+        if: always() && inputs.run-code-style
+        uses: actions/upload-artifact@v4
+        with:
+          name: counts-codestyle
+          path: counts-codestyle.json
+          retention-days: 15
+
+      # ---------- Static analysis (phpstan) --------------------------------
       - name: Static analysis (phpstan)
+        id: phpstan
         if: inputs.run-static-analysis
-        run: vendor/bin/phpstan analyse --no-progress --memory-limit=2G
+        continue-on-error: true
+        run: |
+          set +e
+          vendor/bin/phpstan analyse --no-progress --memory-limit=2G 2>&1 | tee phpstan-output.txt
+          echo "${PIPESTATUS[0]}" > phpstan.exit
 
+      - name: Phpstan summary
+        if: always() && inputs.run-static-analysis
+        run: |
+          set +e
+          EXIT=$(cat phpstan.exit 2>/dev/null || echo 0)
+          # phpstan termina com linha "[ERROR] Found N errors" ou "[OK] No errors".
+          COUNT=$(grep -oE 'Found [0-9]+ error' phpstan-output.txt | grep -oE '[0-9]+' | tail -1)
+          [ -z "$COUNT" ] && COUNT=0
+          {
+            echo "## Static analysis (phpstan)"
+            echo ""
+            if [ "$EXIT" -eq 0 ]; then
+              echo "Nenhum erro."
+            else
+              echo "**${COUNT} erro(s) reportado(s).**"
+              echo ""
+              echo '```'
+              tail -200 phpstan-output.txt
+              echo '```'
+            fi
+            echo ""
+            echo "> Artifact: \`phpstan-report\`"
+          } > phpstan-details.md
+          cat phpstan-details.md >> "$GITHUB_STEP_SUMMARY"
+          STATUS=success
+          [ "$EXIT" -ne 0 ] && STATUS=failure
+          jq -n \
+            --arg tool "Static analysis" \
+            --arg status "$STATUS" \
+            --arg summary "${COUNT} erro(s)" \
+            --rawfile details phpstan-details.md \
+            '{tool:$tool,status:$status,summary:$summary,details:$details}' \
+            > counts-phpstan.json
+
+      - name: Upload phpstan report
+        if: always() && inputs.run-static-analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: phpstan-report
+          path: phpstan-output.txt
+          retention-days: 15
+          if-no-files-found: ignore
+
+      - name: Upload phpstan counts
+        if: always() && inputs.run-static-analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: counts-phpstan
+          path: counts-phpstan.json
+          retention-days: 15
+
+      # ---------- Tests (phpunit) ------------------------------------------
       - name: Run tests
+        id: phpunit
+        continue-on-error: true
         env:
           CMD: ${{ inputs.test-command }}
-        run: $CMD
+        run: |
+          set +e
+          bash -c "$CMD" 2>&1 | tee phpunit-output.txt
+          echo "${PIPESTATUS[0]}" > phpunit.exit
+
+      - name: Phpunit summary
+        if: always()
+        run: |
+          set +e
+          EXIT=$(cat phpunit.exit 2>/dev/null || echo 0)
+          # Tenta linhas tipo "Tests: 42, Assertions: 100, Failures: 3, Errors: 1".
+          STATS=$(grep -oE 'Tests: [0-9]+.*' phpunit-output.txt | tail -1)
+          [ -z "$STATS" ] && STATS=$(grep -oE 'OK \([0-9]+ tests?.*\)' phpunit-output.txt | tail -1)
+          [ -z "$STATS" ] && STATS="(sem estatisticas)"
+          {
+            echo "## Tests (phpunit)"
+            echo ""
+            if [ "$EXIT" -eq 0 ]; then
+              echo "Suite verde. ${STATS}"
+            else
+              echo "**Suite vermelha.** ${STATS}"
+              echo ""
+              echo '```'
+              tail -200 phpunit-output.txt
+              echo '```'
+            fi
+            echo ""
+            echo "> Artifact: \`phpunit-report\`"
+          } > phpunit-details.md
+          cat phpunit-details.md >> "$GITHUB_STEP_SUMMARY"
+          STATUS=success
+          [ "$EXIT" -ne 0 ] && STATUS=failure
+          jq -n \
+            --arg tool "Tests" \
+            --arg status "$STATUS" \
+            --arg summary "$STATS" \
+            --rawfile details phpunit-details.md \
+            '{tool:$tool,status:$status,summary:$summary,details:$details}' \
+            > counts-test.json
+
+      - name: Upload phpunit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phpunit-report
+          path: phpunit-output.txt
+          retention-days: 15
+          if-no-files-found: ignore
+
+      - name: Upload phpunit counts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: counts-test
+          path: counts-test.json
+          retention-days: 15
+
+      # ---------- Propaga status ------------------------------------------
+      # Job test fica vermelho se qualquer check tiver falhado. Os counts ja
+      # subiram via if: always(), entao o Report consolidado ainda mostra
+      # todos os tools mesmo com job test vermelho.
+      - name: Propagate job status
+        if: always()
+        env:
+          AUDIT_OUTCOME:    ${{ steps.audit.outcome }}
+          PINT_OUTCOME:     ${{ steps.pint.outcome }}
+          PHPSTAN_OUTCOME:  ${{ steps.phpstan.outcome }}
+          PHPUNIT_OUTCOME:  ${{ steps.phpunit.outcome }}
+        run: |
+          fail=0
+          for o in "$AUDIT_OUTCOME" "$PINT_OUTCOME" "$PHPSTAN_OUTCOME" "$PHPUNIT_OUTCOME"; do
+            if [ "$o" = "failure" ]; then
+              fail=1
+            fi
+          done
+          if [ "$fail" -eq 1 ]; then
+            exit 1
+          fi
 
   # ===========================================================================
   # Pipeline (chama base.yml)
