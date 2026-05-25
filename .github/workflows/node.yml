@@ -149,7 +149,7 @@ jobs:
       # Restore parcial via restore-keys garante que install ainda valida quando
       # o lockfile muda; cache miss completo ainda roda install do zero.
       - name: Cache node_modules
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             node_modules
@@ -297,7 +297,7 @@ jobs:
       # Restore parcial via restore-keys garante que install ainda valida quando
       # o lockfile muda; cache miss completo ainda roda install do zero.
       - name: Cache node_modules
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             node_modules
@@ -422,7 +422,7 @@ jobs:
       # Restore parcial via restore-keys garante que install ainda valida quando
       # o lockfile muda; cache miss completo ainda roda install do zero.
       - name: Cache node_modules
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             node_modules
@@ -547,7 +547,7 @@ jobs:
       # Restore parcial via restore-keys garante que install ainda valida quando
       # o lockfile muda; cache miss completo ainda roda install do zero.
       - name: Cache node_modules
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             node_modules
