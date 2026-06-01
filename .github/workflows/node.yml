@@ -85,6 +85,8 @@ on:
       auth-method:                { required: false, type: string, default: 'docker-login' }
       gcp-workload-identity-provider: { required: false, type: string, default: '' }
       gcp-service-account:        { required: false, type: string, default: '' }
+      aws-role-to-assume:         { required: false, type: string, default: '' }
+      aws-region:                 { required: false, type: string, default: 'us-east-1' }
 
     secrets:
       REGISTRY_USERNAME:    { required: false }
@@ -689,3 +691,5 @@ jobs:
       auth-method:                    ${{ inputs.auth-method }}
       gcp-workload-identity-provider: ${{ inputs.gcp-workload-identity-provider }}
       gcp-service-account:            ${{ inputs.gcp-service-account }}
+      aws-role-to-assume:             ${{ inputs.aws-role-to-assume }}
+      aws-region:                     ${{ inputs.aws-region }}

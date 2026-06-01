@@ -156,7 +156,7 @@ on:
       # gcp-wif: OIDC via Workload Identity Federation. Caller precisa permitir
       # `id-token: write` e setar gcp-workload-identity-provider + gcp-service-account.
       auth-method:
-        description: 'Metodo de auth no registry: docker-login | gcp-wif.'
+        description: 'Metodo de auth no registry: docker-login | gcp-wif | aws.'
         required: false
         type: string
         default: 'docker-login'
@@ -170,6 +170,18 @@ on:
         required: false
         type: string
         default: ''
+      # aws: OIDC via configure-aws-credentials + login no ECR. Caller precisa
+      # permitir `id-token: write` e setar aws-role-to-assume (+ aws-region).
+      aws-role-to-assume:
+        description: 'IAM role ARN p/ OIDC AWS. So usado se auth-method=aws.'
+        required: false
+        type: string
+        default: ''
+      aws-region:
+        description: 'Regiao AWS (ex: us-east-1). So usado se auth-method=aws.'
+        required: false
+        type: string
+        default: 'us-east-1'
 
       # Login adicional pra puxar a imagem-base do Dockerfile quando ela
       # mora num registry diferente do de push (ou quando do-push=false e
@@ -651,6 +663,8 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Image: ${IMAGE_REF}"
 
+      # QEMU habilita build cross-arch (ex: linux/arm64 em runner amd64).
+      - uses: docker/setup-qemu-action@v3
       # driver: docker-container habilita cache GHA e multi-plataforma.
       - uses: docker/setup-buildx-action@v3
         with:
@@ -695,6 +709,17 @@ jobs:
           registry: ${{ steps.registry-host.outputs.host }}
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Auth AWS (OIDC)
+        if: inputs.do-push && inputs.auth-method == 'aws'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws-role-to-assume }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Registry login (ECR)
+        if: inputs.do-push && inputs.auth-method == 'aws'
+        uses: aws-actions/amazon-ecr-login@v2
 
       # Login adicional pra puxar a imagem-base do Dockerfile. Roda mesmo
       # quando do-push=false, pois o build precisa de auth pra resolver o FROM.
@@ -817,6 +842,17 @@ jobs:
           registry: ${{ inputs.registry }}
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Auth AWS (OIDC)
+        if: inputs.auth-method == 'aws'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws-role-to-assume }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Registry login (ECR)
+        if: inputs.auth-method == 'aws'
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Trivy image
         id: scan
