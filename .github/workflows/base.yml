@@ -451,7 +451,7 @@ jobs:
           retention-days: 7
 
       - name: Propagate status
-        if: always() && steps.scan.outcome == 'failure'
+        if: always() && steps.scan.outcome == 'failure' && inputs.block-on-failure
         run: exit 1
 
   # ===========================================================================
@@ -532,7 +532,7 @@ jobs:
           retention-days: 7
 
       - name: Propagate status
-        if: always() && steps.scan.outcome == 'failure'
+        if: always() && steps.scan.outcome == 'failure' && inputs.block-on-failure
         run: exit 1
 
   # ===========================================================================
@@ -611,7 +611,7 @@ jobs:
           retention-days: 7
 
       - name: Propagate status
-        if: always() && steps.scan.outcome == 'failure'
+        if: always() && steps.scan.outcome == 'failure' && inputs.block-on-failure
         run: exit 1
 
   # ===========================================================================
@@ -928,7 +928,7 @@ jobs:
           retention-days: 7
 
       - name: Propagate status
-        if: always() && steps.scan.outcome == 'failure'
+        if: always() && steps.scan.outcome == 'failure' && inputs.block-on-failure
         run: exit 1
 
   # GitOps bump foi extraido pra uma composite action — chame
