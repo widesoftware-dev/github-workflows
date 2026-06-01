@@ -68,6 +68,7 @@ on:
       build-args:        { required: false, type: string, default: '' }
       build-context:     { required: false, type: string, default: '.' }
       platforms:         { required: false, type: string, default: 'linux/amd64' }
+      build-runner:      { required: false, type: string, default: 'ubuntu-latest' }
       do-push:           { required: false, type: boolean, default: true }
       block-on-failure:  { required: false, type: boolean, default: true }
       run-secrets-scan:    { required: false, type: boolean, default: true }
@@ -669,6 +670,7 @@ jobs:
       build-args:          ${{ inputs.build-args }}
       build-context:       ${{ inputs.build-context }}
       platforms:           ${{ inputs.platforms }}
+      build-runner:        ${{ inputs.build-runner }}
       do-push:             ${{ inputs.do-push }}
       block-on-failure:    ${{ inputs.block-on-failure }}
       tests-passed: >-
