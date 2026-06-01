@@ -787,6 +787,9 @@ jobs:
           push: ${{ inputs.do-push }}
           load: ${{ !inputs.do-push }}
           tags: ${{ steps.meta.outputs.image-ref }}
+          # Sem attestations -> manifesto single-arch (nao OCI index multi-manifest)
+          provenance: false
+          sbom: false
           build-args: ${{ inputs.build-args }}
           cache-from: ${{ steps.dcache.outputs.from }}
           cache-to: ${{ steps.dcache.outputs.to }}
