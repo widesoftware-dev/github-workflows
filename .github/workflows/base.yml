@@ -273,6 +273,9 @@ permissions:
 # dos logs sem precisar bumpar versao de cada action individualmente.
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # Pula o check de versao do Trivy (--skip-version-check); evita falha por
+  # rate-limit/rede ao consultar a versao mais nova.
+  TRIVY_SKIP_VERSION_CHECK: 'true'
 
 # Cancela runs anteriores na mesma ref (PR ou branch) quando vier push novo.
 concurrency:
