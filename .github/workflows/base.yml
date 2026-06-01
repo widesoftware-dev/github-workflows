@@ -376,6 +376,7 @@ jobs:
   # ===========================================================================
   sast:
     name: SAST (Semgrep)
+    continue-on-error: ${{ inputs.block-on-failure == false }}
     if: inputs.run-sast
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -451,7 +452,7 @@ jobs:
           retention-days: 7
 
       - name: Propagate status
-        if: always() && steps.scan.outcome == 'failure' && inputs.block-on-failure
+        if: always() && steps.scan.outcome == 'failure'
         run: exit 1
 
   # ===========================================================================
@@ -462,6 +463,7 @@ jobs:
   # ===========================================================================
   vuln-scan-fs:
     name: Vuln scan (Trivy FS)
+    continue-on-error: ${{ inputs.block-on-failure == false }}
     if: inputs.run-vuln-scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -532,7 +534,7 @@ jobs:
           retention-days: 7
 
       - name: Propagate status
-        if: always() && steps.scan.outcome == 'failure' && inputs.block-on-failure
+        if: always() && steps.scan.outcome == 'failure'
         run: exit 1
 
   # ===========================================================================
@@ -543,6 +545,7 @@ jobs:
   # ===========================================================================
   vuln-scan-config:
     name: Vuln scan (Trivy Config)
+    continue-on-error: ${{ inputs.block-on-failure == false }}
     if: inputs.run-vuln-scan
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -611,7 +614,7 @@ jobs:
           retention-days: 7
 
       - name: Propagate status
-        if: always() && steps.scan.outcome == 'failure' && inputs.block-on-failure
+        if: always() && steps.scan.outcome == 'failure'
         run: exit 1
 
   # ===========================================================================
@@ -636,7 +639,7 @@ jobs:
       - vuln-scan-config
     if: |
       always() &&
-      inputs.tests-passed &&
+      (inputs.tests-passed || inputs.block-on-failure == false) &&
       (
         inputs.block-on-failure == false ||
         (
@@ -813,6 +816,7 @@ jobs:
   # ===========================================================================
   container-scan:
     name: Container scan
+    continue-on-error: ${{ inputs.block-on-failure == false }}
     # So roda se imagem foi efetivamente pushada (do-push=true E build success).
     # Em PR validation com do-push=false, nao existe imagem no registry pra trivy
     # puxar — alem disso, sem skip aqui o trivy retorna MANIFEST_UNKNOWN.
@@ -928,7 +932,7 @@ jobs:
           retention-days: 7
 
       - name: Propagate status
-        if: always() && steps.scan.outcome == 'failure' && inputs.block-on-failure
+        if: always() && steps.scan.outcome == 'failure'
         run: exit 1
 
   # GitOps bump foi extraido pra uma composite action — chame
