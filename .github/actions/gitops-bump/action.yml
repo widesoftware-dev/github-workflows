@@ -44,6 +44,10 @@ inputs:
     description: 'Forca o {env} (prod | homolog). Vazio = deriva do github.ref.'
     required: false
     default: ''
+  gitops-branch:
+    description: 'Branch do GitOps repo p/ commitar o bump. Vazio = branch default.'
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -105,6 +109,7 @@ runs:
       uses: actions/checkout@v4
       with:
         repository: ${{ inputs.gitops-repo }}
+        ref: ${{ inputs.gitops-branch }}
         token: ${{ steps.app-token.outputs.token }}
         path: ops-repo
 

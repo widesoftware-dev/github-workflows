@@ -68,6 +68,7 @@ on:
       build-args:        { required: false, type: string, default: '' }
       build-context:     { required: false, type: string, default: '.' }
       platforms:         { required: false, type: string, default: 'linux/amd64' }
+      build-runner:      { required: false, type: string, default: 'ubuntu-latest' }
       do-push:           { required: false, type: boolean, default: true }
       block-on-failure:  { required: false, type: boolean, default: true }
       run-secrets-scan:    { required: false, type: boolean, default: true }
@@ -85,6 +86,8 @@ on:
       auth-method:                { required: false, type: string, default: 'docker-login' }
       gcp-workload-identity-provider: { required: false, type: string, default: '' }
       gcp-service-account:        { required: false, type: string, default: '' }
+      aws-role-to-assume:         { required: false, type: string, default: '' }
+      aws-region:                 { required: false, type: string, default: 'us-east-1' }
 
     secrets:
       REGISTRY_USERNAME:    { required: false }
@@ -116,6 +119,7 @@ jobs:
   # ===========================================================================
   audit:
     name: Dependency audit
+    continue-on-error: ${{ inputs.block-on-failure == false }}
     if: inputs.run-dependency-scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -265,6 +269,7 @@ jobs:
   # ===========================================================================
   lint:
     name: Lint
+    continue-on-error: ${{ inputs.block-on-failure == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -389,6 +394,7 @@ jobs:
   # ===========================================================================
   typecheck:
     name: Typecheck
+    continue-on-error: ${{ inputs.block-on-failure == false }}
     if: inputs.typecheck-command != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -514,6 +520,7 @@ jobs:
   # ===========================================================================
   test:
     name: Tests
+    continue-on-error: ${{ inputs.block-on-failure == false }}
     if: inputs.test-command != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -667,6 +674,7 @@ jobs:
       build-args:          ${{ inputs.build-args }}
       build-context:       ${{ inputs.build-context }}
       platforms:           ${{ inputs.platforms }}
+      build-runner:        ${{ inputs.build-runner }}
       do-push:             ${{ inputs.do-push }}
       block-on-failure:    ${{ inputs.block-on-failure }}
       tests-passed: >-
@@ -689,3 +697,5 @@ jobs:
       auth-method:                    ${{ inputs.auth-method }}
       gcp-workload-identity-provider: ${{ inputs.gcp-workload-identity-provider }}
       gcp-service-account:            ${{ inputs.gcp-service-account }}
+      aws-role-to-assume:             ${{ inputs.aws-role-to-assume }}
+      aws-region:                     ${{ inputs.aws-region }}

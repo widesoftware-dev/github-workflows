@@ -75,6 +75,11 @@ on:
         required: false
         type: string
         default: 'linux/amd64'
+      build-runner:
+        description: 'Runner do job de build-push (ex: ubuntu-latest | ubuntu-24.04-arm). Use runner ARM p/ build arm64 nativo (sem QEMU).'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
 
       # ----- controle de fluxo ------------------------------------------------
       do-push:
@@ -156,7 +161,7 @@ on:
       # gcp-wif: OIDC via Workload Identity Federation. Caller precisa permitir
       # `id-token: write` e setar gcp-workload-identity-provider + gcp-service-account.
       auth-method:
-        description: 'Metodo de auth no registry: docker-login | gcp-wif.'
+        description: 'Metodo de auth no registry: docker-login | gcp-wif | aws.'
         required: false
         type: string
         default: 'docker-login'
@@ -170,6 +175,18 @@ on:
         required: false
         type: string
         default: ''
+      # aws: OIDC via configure-aws-credentials + login no ECR. Caller precisa
+      # permitir `id-token: write` e setar aws-role-to-assume (+ aws-region).
+      aws-role-to-assume:
+        description: 'IAM role ARN p/ OIDC AWS. So usado se auth-method=aws.'
+        required: false
+        type: string
+        default: ''
+      aws-region:
+        description: 'Regiao AWS (ex: us-east-1). So usado se auth-method=aws.'
+        required: false
+        type: string
+        default: 'us-east-1'
 
       # Login adicional pra puxar a imagem-base do Dockerfile quando ela
       # mora num registry diferente do de push (ou quando do-push=false e
@@ -256,6 +273,9 @@ permissions:
 # dos logs sem precisar bumpar versao de cada action individualmente.
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # Pula o check de versao do Trivy (--skip-version-check); evita falha por
+  # rate-limit/rede ao consultar a versao mais nova.
+  TRIVY_SKIP_VERSION_CHECK: 'true'
 
 # Cancela runs anteriores na mesma ref (PR ou branch) quando vier push novo.
 concurrency:
@@ -356,6 +376,7 @@ jobs:
   # ===========================================================================
   sast:
     name: SAST (Semgrep)
+    continue-on-error: ${{ inputs.block-on-failure == false }}
     if: inputs.run-sast
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -442,6 +463,7 @@ jobs:
   # ===========================================================================
   vuln-scan-fs:
     name: Vuln scan (Trivy FS)
+    continue-on-error: ${{ inputs.block-on-failure == false }}
     if: inputs.run-vuln-scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -523,6 +545,7 @@ jobs:
   # ===========================================================================
   vuln-scan-config:
     name: Vuln scan (Trivy Config)
+    continue-on-error: ${{ inputs.block-on-failure == false }}
     if: inputs.run-vuln-scan
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -607,7 +630,7 @@ jobs:
   # ===========================================================================
   build-push:
     name: Build & push
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.build-runner }}
     timeout-minutes: 30
     needs:
       - secrets-scan
@@ -616,7 +639,7 @@ jobs:
       - vuln-scan-config
     if: |
       always() &&
-      inputs.tests-passed &&
+      (inputs.tests-passed || inputs.block-on-failure == false) &&
       (
         inputs.block-on-failure == false ||
         (
@@ -651,6 +674,8 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Image: ${IMAGE_REF}"
 
+      # QEMU habilita build cross-arch (ex: linux/arm64 em runner amd64).
+      - uses: docker/setup-qemu-action@v3
       # driver: docker-container habilita cache GHA e multi-plataforma.
       - uses: docker/setup-buildx-action@v3
         with:
@@ -695,6 +720,17 @@ jobs:
           registry: ${{ steps.registry-host.outputs.host }}
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Auth AWS (OIDC)
+        if: inputs.do-push && inputs.auth-method == 'aws'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws-role-to-assume }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Registry login (ECR)
+        if: inputs.do-push && inputs.auth-method == 'aws'
+        uses: aws-actions/amazon-ecr-login@v2
 
       # Login adicional pra puxar a imagem-base do Dockerfile. Roda mesmo
       # quando do-push=false, pois o build precisa de auth pra resolver o FROM.
@@ -757,6 +793,9 @@ jobs:
           push: ${{ inputs.do-push }}
           load: ${{ !inputs.do-push }}
           tags: ${{ steps.meta.outputs.image-ref }}
+          # Sem attestations -> manifesto single-arch (nao OCI index multi-manifest)
+          provenance: false
+          sbom: false
           build-args: ${{ inputs.build-args }}
           cache-from: ${{ steps.dcache.outputs.from }}
           cache-to: ${{ steps.dcache.outputs.to }}
@@ -777,6 +816,7 @@ jobs:
   # ===========================================================================
   container-scan:
     name: Container scan
+    continue-on-error: ${{ inputs.block-on-failure == false }}
     # So roda se imagem foi efetivamente pushada (do-push=true E build success).
     # Em PR validation com do-push=false, nao existe imagem no registry pra trivy
     # puxar — alem disso, sem skip aqui o trivy retorna MANIFEST_UNKNOWN.
@@ -817,6 +857,17 @@ jobs:
           registry: ${{ inputs.registry }}
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Auth AWS (OIDC)
+        if: inputs.auth-method == 'aws'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws-role-to-assume }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Registry login (ECR)
+        if: inputs.auth-method == 'aws'
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Trivy image
         id: scan
