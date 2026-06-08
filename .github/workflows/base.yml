@@ -349,7 +349,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gitleaks-report
           path: gitleaks-report.json
@@ -357,7 +357,7 @@ jobs:
 
       - name: Upload counts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: counts-gitleaks
           path: counts-gitleaks.json
@@ -437,7 +437,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: semgrep-report
           path: semgrep.sarif
@@ -445,7 +445,7 @@ jobs:
 
       - name: Upload counts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: counts-sast
           path: counts-sast.json
@@ -519,7 +519,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trivy-fs-report
           path: trivy-fs.json
@@ -527,7 +527,7 @@ jobs:
 
       - name: Upload counts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: counts-trivy-fs
           path: counts-trivy-fs.json
@@ -599,7 +599,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trivy-config-report
           path: trivy-config.json
@@ -607,7 +607,7 @@ jobs:
 
       - name: Upload counts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: counts-trivy-config
           path: counts-trivy-config.json
@@ -917,7 +917,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trivy-image-report
           path: trivy-image.json
@@ -925,7 +925,7 @@ jobs:
 
       - name: Upload counts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: counts-container-scan
           path: counts-container-scan.json

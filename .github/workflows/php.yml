@@ -250,7 +250,7 @@ jobs:
 
       - name: Upload composer audit report
         if: always() && inputs.run-dependency-scan
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: composer-audit-report
           path: audit-output.txt
@@ -259,7 +259,7 @@ jobs:
 
       - name: Upload composer audit counts
         if: always() && inputs.run-dependency-scan
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: counts-audit
           path: counts-audit.json
@@ -310,7 +310,7 @@ jobs:
 
       - name: Upload pint report
         if: always() && inputs.run-code-style
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pint-report
           path: pint-output.txt
@@ -319,7 +319,7 @@ jobs:
 
       - name: Upload pint counts
         if: always() && inputs.run-code-style
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: counts-codestyle
           path: counts-codestyle.json
@@ -372,7 +372,7 @@ jobs:
 
       - name: Upload phpstan report
         if: always() && inputs.run-static-analysis
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: phpstan-report
           path: phpstan-output.txt
@@ -381,7 +381,7 @@ jobs:
 
       - name: Upload phpstan counts
         if: always() && inputs.run-static-analysis
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: counts-phpstan
           path: counts-phpstan.json
@@ -476,7 +476,7 @@ jobs:
 
       - name: Upload phpunit report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: phpunit-report
           path: phpunit-output.txt
@@ -485,7 +485,7 @@ jobs:
 
       - name: Upload phpunit counts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: counts-test
           path: counts-test.json
