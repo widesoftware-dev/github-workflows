@@ -246,7 +246,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pm-audit-report
           path: pm-audit.json
@@ -254,7 +254,7 @@ jobs:
 
       - name: Upload counts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: counts-audit
           path: counts-audit.json
@@ -371,7 +371,7 @@ jobs:
 
       - name: Upload log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lint-log
           path: lint.log
@@ -379,7 +379,7 @@ jobs:
 
       - name: Upload counts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: counts-lint
           path: counts-lint.json
@@ -497,7 +497,7 @@ jobs:
 
       - name: Upload log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: typecheck-log
           path: typecheck.log
@@ -505,7 +505,7 @@ jobs:
 
       - name: Upload counts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: counts-typecheck
           path: counts-typecheck.json
@@ -622,7 +622,7 @@ jobs:
 
       - name: Upload log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tests-log
           path: tests.log
@@ -630,7 +630,7 @@ jobs:
 
       - name: Upload counts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: counts-tests
           path: counts-tests.json
