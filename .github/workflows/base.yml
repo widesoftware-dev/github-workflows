@@ -784,7 +784,7 @@ jobs:
       # — util pra debug ou pra rodar testes contra o container localmente.
       - name: Build (and push)
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ inputs.build-context }}
           file: ${{ inputs.dockerfile }}
