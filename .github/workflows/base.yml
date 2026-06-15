@@ -707,7 +707,7 @@ jobs:
 
       - name: Registry login (GCP)
         if: inputs.do-push && inputs.auth-method == 'gcp-wif'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ steps.registry-host.outputs.host }}
           username: oauth2accesstoken
@@ -715,7 +715,7 @@ jobs:
 
       - name: Registry login (user/password)
         if: inputs.do-push && inputs.auth-method == 'docker-login'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ steps.registry-host.outputs.host }}
           username: ${{ secrets.REGISTRY_USERNAME }}
@@ -736,7 +736,7 @@ jobs:
       # quando do-push=false, pois o build precisa de auth pra resolver o FROM.
       - name: Extra registry login (base image)
         if: inputs.extra-registry-host != ''
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ inputs.extra-registry-host }}
           username: ${{ inputs.extra-registry-username }}
@@ -844,7 +844,7 @@ jobs:
 
       - name: Registry login (GCP)
         if: inputs.auth-method == 'gcp-wif'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ steps.registry-host.outputs.host }}
           username: oauth2accesstoken
@@ -852,7 +852,7 @@ jobs:
 
       - name: Registry login (user/password)
         if: inputs.auth-method == 'docker-login'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ inputs.registry }}
           username: ${{ secrets.REGISTRY_USERNAME }}

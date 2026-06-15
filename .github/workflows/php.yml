@@ -403,7 +403,7 @@ jobs:
       # ja que jobs nao compartilham docker auth.
       - name: Pre-test registry login
         if: inputs.pre-test-registry-host != ''
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ inputs.pre-test-registry-host }}
           username: ${{ inputs.pre-test-registry-username }}
