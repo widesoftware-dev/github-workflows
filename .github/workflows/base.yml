@@ -968,7 +968,7 @@ jobs:
     steps:
       # Pega counts-<tool>.json gerados por cada job (scan/test/etc).
       - name: Download counts artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: counts-*
           merge-multiple: true
