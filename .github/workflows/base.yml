@@ -675,7 +675,7 @@ jobs:
           echo "Image: ${IMAGE_REF}"
 
       # QEMU habilita build cross-arch (ex: linux/arm64 em runner amd64).
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
       # driver: docker-container habilita cache GHA e multi-plataforma.
       - uses: docker/setup-buildx-action@v4
         with:
