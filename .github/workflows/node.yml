@@ -124,7 +124,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Sem version: pnpm/action-setup le de package.json#packageManager.
       - name: Setup pnpm (from packageManager)
@@ -273,7 +273,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Sem version: pnpm/action-setup le de package.json#packageManager.
       - name: Setup pnpm (from packageManager)
@@ -399,7 +399,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Sem version: pnpm/action-setup le de package.json#packageManager.
       - name: Setup pnpm (from packageManager)
@@ -525,7 +525,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Sem version: pnpm/action-setup le de package.json#packageManager.
       - name: Setup pnpm (from packageManager)
