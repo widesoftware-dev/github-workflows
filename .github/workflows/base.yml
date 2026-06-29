@@ -1163,7 +1163,7 @@ jobs:
 
       - name: Notify Email
         if: steps.smtp-check.outputs.enabled == 'true'
-        uses: dawidd6/action-send-mail@v17
+        uses: dawidd6/action-send-mail@v18
         with:
           server_address: ${{ secrets.SMTP_HOST }}
           server_port: ${{ secrets.SMTP_PORT }}
