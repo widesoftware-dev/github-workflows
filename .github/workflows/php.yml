@@ -66,7 +66,7 @@ on:
         type: string
         default: ''
       pre-test-cache-key:
-        description: 'Prefixo da chave do actions/cache@v5 aplicado antes do pre-test-command. Vazio = sem cache. Se pre-test-cache-key-files for setado, a key final vira `<prefixo>-<hashFiles(...)>`.'
+        description: 'Prefixo da chave do actions/cache@v6 aplicado antes do pre-test-command. Vazio = sem cache. Se pre-test-cache-key-files for setado, a key final vira `<prefixo>-<hashFiles(...)>`.'
         required: false
         type: string
         default: ''
@@ -178,7 +178,7 @@ jobs:
         id: composer-cache
         run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/cache@v5
+      - uses: actions/cache@v6
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
           key: composer-${{ runner.os }}-php${{ inputs.php-version }}-${{ hashFiles('**/composer.lock') }}
@@ -411,7 +411,7 @@ jobs:
 
       - name: Pre-test cache
         if: inputs.pre-test-cache-key != ''
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           # Compoe a key final. Se pre-test-cache-key-files != '', anexa o
           # hashFiles desses paths pra invalidar quando os arquivos mudam.
