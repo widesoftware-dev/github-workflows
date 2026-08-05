@@ -126,7 +126,24 @@ gh run view <run-id> --log-failed
 
 ### Branch protection / rulesets
 
-Branch `main` protegida via ruleset `main-protection`: PR obrigatório, 1 approval, dismiss stale, checks `actionlint`+`validate-examples-pin`, sem force-push, sem delete. Configurada via `/repos/.../rulesets` (não via UI clássica).
+Branch `main` protegida via ruleset `main-protection`: PR obrigatório, 1 approval, dismiss stale, checks `actionlint`+`Validate examples pin`, sem force-push, sem delete. Configurada via `/repos/.../rulesets` (não via UI clássica).
+
+**Context de check exigido = `name:` do job, não o id do job.** O job `validate-examples-pin` do `self-test.yml` tem `name: Validate examples pin`, então o context reportado ao ruleset é `Validate examples pin`. Se o ruleset exigir o id (`validate-examples-pin`), o check nunca reporta e o PR trava em `BLOCKED` esperando status pra sempre — sintoma: "checks não terminam". Ao renomear job ou mudar `name:`, atualizar o context no ruleset junto.
+
+Inspecionar contexts exigidos:
+
+```sh
+gh api /repos/widesoftware-dev/github-workflows/rulesets/16535392 \
+  --jq '.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks'
+```
+
+Diagnosticar PR travado:
+
+```sh
+gh pr view <n> --repo widesoftware-dev/github-workflows --json mergeStateStatus,reviewDecision,statusCheckRollup
+```
+
+`mergeStateStatus: BLOCKED` com todos os checks `SUCCESS` e `reviewDecision: APPROVED` = context exigido que nunca reporta.
 
 ## O que NÃO fazer
 
