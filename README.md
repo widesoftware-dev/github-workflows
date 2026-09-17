@@ -99,6 +99,7 @@ Núcleo do pipeline. Pode ser chamado direto (sem testes de linguagem) ou via os
 | `build-context` | string | `.` | Contexto do build |
 | `platforms` | string | `linux/amd64` | Plataformas alvo do buildx |
 | `do-push` | boolean | `true` | Faz push (false = só builda) |
+| `run-build` | boolean | `true` | `false` pula o build (e o container scan, que depende de imagem no registry). Use em PR validation com `do-push: false` quando o smoke test do Dockerfile não vale os minutos |
 | `block-on-failure` | boolean | `true` | Falha de scan bloqueia build/push |
 | `run-secrets-scan` | boolean | `true` | gitleaks |
 | `run-vuln-scan` | boolean | `true` | Trivy FS + Trivy Config |
@@ -322,7 +323,7 @@ Cada scan tem um toggle. Cliente novo herda tudo ligado. Cliente legado pode des
 | `run-vuln-scan` | Trivy quebra em CVE conhecidos sem patch | Rodar `composer/yarn update`, depois ativar |
 | `run-sast` | Semgrep quebra em padrões legados | Refatorar pontos críticos, ou adicionar `.semgrepignore`, depois ativar |
 | `run-dependency-scan` | `composer/yarn audit` quebra em deps desatualizadas | Bump das deps, depois ativar |
-| Container scan | **obrigatório a partir de v1.8.0** — sempre roda. Resolva CVEs no Dockerfile base. |
+| Container scan | **obrigatório a partir de v1.8.0** — sempre roda quando há push. Resolva CVEs no Dockerfile base. Com `do-push: false` não há imagem no registry e o scan pula; `run-build: false` pula também o build. |
 | Cargo audit | **opt-in** a partir de v1.8.0 — composite action; só declare o job se tiver `Cargo.lock`. |
 
 **Recomendação**: ativar 1 toggle por sprint. Não desligue tudo e nunca religue.
