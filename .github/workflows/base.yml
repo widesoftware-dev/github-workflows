@@ -87,6 +87,11 @@ on:
         required: false
         type: boolean
         default: true
+      run-build:
+        description: 'false = pula build-push (e, por consequencia, container-scan). Util em PR validation com do-push=false: sem push nao ha imagem no registry pro Trivy escanear, entao o build so serviria de smoke test do Dockerfile — o caller decide se vale os minutos. Scans + Report + Notify rodam normalmente.'
+        required: false
+        type: boolean
+        default: true
       block-on-failure:
         description: 'true = falha de scan bloqueia build/push. false = warning only (homolog).'
         required: false
@@ -626,7 +631,9 @@ jobs:
   #
   # Cache do GHA scopado por nome de imagem evita conflito entre projetos.
   # Push so acontece se do-push=true. Em PRs de validacao, do-push pode ser
-  # false pra apenas validar que o Dockerfile builda.
+  # false pra apenas validar que o Dockerfile builda — ou run-build=false pra
+  # nem buildar (container-scan pula junto, ja que sem push nao ha imagem no
+  # registry pra escanear).
   # ===========================================================================
   build-push:
     name: Build & push
@@ -639,6 +646,7 @@ jobs:
       - vuln-scan-config
     if: |
       always() &&
+      inputs.run-build &&
       (inputs.tests-passed || inputs.block-on-failure == false) &&
       (
         inputs.block-on-failure == false ||

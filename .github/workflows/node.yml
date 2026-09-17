@@ -70,6 +70,7 @@ on:
       platforms:         { required: false, type: string, default: 'linux/amd64' }
       build-runner:      { required: false, type: string, default: 'ubuntu-latest' }
       do-push:           { required: false, type: boolean, default: true }
+      run-build:         { required: false, type: boolean, default: true }
       block-on-failure:  { required: false, type: boolean, default: true }
       run-secrets-scan:    { required: false, type: boolean, default: true }
       run-vuln-scan:       { required: false, type: boolean, default: true }
@@ -676,6 +677,7 @@ jobs:
       platforms:           ${{ inputs.platforms }}
       build-runner:        ${{ inputs.build-runner }}
       do-push:             ${{ inputs.do-push }}
+      run-build:           ${{ inputs.run-build }}
       block-on-failure:    ${{ inputs.block-on-failure }}
       tests-passed: >-
         ${{ (needs.audit.result     == 'success' || needs.audit.result     == 'skipped') &&
