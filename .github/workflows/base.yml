@@ -496,28 +496,46 @@ jobs:
           HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-fs.json 2>/dev/null || echo 0)
           CRIT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-fs.json 2>/dev/null || echo 0)
           TOTAL=$((HIGH + CRIT))
+          # trivy fs roda secret scanning por padrao, e --severity so filtra
+          # Vulnerabilities (nao Secrets): um secret sozinho ja tira o `trivy`
+          # com exit-code 1 mesmo com TOTAL=0, e sem essa contagem o resumo
+          # dizia "0 HIGH/CRITICAL" enquanto o job aparecia vermelho -- causa
+          # real invisivel pra quem so olha o Report do PR.
+          SECRETS=$(jq '[.Results[]?.Secrets[]?] | length' trivy-fs.json 2>/dev/null || echo 0)
           {
             echo "## Trivy FS"
             echo ""
-            if [ "$TOTAL" -eq 0 ]; then
-              echo "Nenhuma vulnerabilidade HIGH/CRITICAL nos manifestos."
+            if [ "$TOTAL" -eq 0 ] && [ "$SECRETS" -eq 0 ]; then
+              echo "Nenhuma vulnerabilidade HIGH/CRITICAL nem secret nos manifestos."
             else
-              echo "**${TOTAL} vulnerabilidade(s)** (HIGH=${HIGH}, CRITICAL=${CRIT})."
-              echo ""
-              echo "| Severidade | CVE | Pacote | Versão | Fixed |"
-              echo "|---|---|---|---|---|"
-              jq -r '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL")] | .[:20][] | "| \(.Severity) | `\(.VulnerabilityID)` | `\(.PkgName)` | `\(.InstalledVersion)` | `\(.FixedVersion // "—")` |"' trivy-fs.json 2>/dev/null || true
+              if [ "$TOTAL" -gt 0 ]; then
+                echo "**${TOTAL} vulnerabilidade(s)** (HIGH=${HIGH}, CRITICAL=${CRIT})."
+                echo ""
+                echo "| Severidade | CVE | Pacote | Versão | Fixed |"
+                echo "|---|---|---|---|---|"
+                jq -r '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL")] | .[:20][] | "| \(.Severity) | `\(.VulnerabilityID)` | `\(.PkgName)` | `\(.InstalledVersion)` | `\(.FixedVersion // "—")` |"' trivy-fs.json 2>/dev/null || true
+                echo ""
+              fi
+              if [ "$SECRETS" -gt 0 ]; then
+                echo "**${SECRETS} secret(s) detectado(s)** nos arquivos (--severity do scan de vulnerabilidades não filtra secrets)."
+                echo ""
+                echo "| Severidade | Regra | Arquivo | Linha |"
+                echo "|---|---|---|---|"
+                jq -r '[.Results[]? as $r | $r.Secrets[]? | {sev: .Severity, id: .RuleID, file: $r.Target, line: .StartLine}] | .[:20][] | "| \(.sev) | `\(.id)` | `\(.file)` | \(.line) |"' trivy-fs.json 2>/dev/null || true
+                echo ""
+              fi
             fi
-            echo ""
             echo "> Artifact: \`trivy-fs-report\`"
           } > details.md
           cat details.md >> "$GITHUB_STEP_SUMMARY"
           STATUS=success
           [ "${{ steps.scan.outcome }}" = "failure" ] && STATUS=failure
+          SUMMARY="${TOTAL} HIGH/CRITICAL"
+          [ "$SECRETS" -gt 0 ] && SUMMARY="${SUMMARY}, ${SECRETS} secret(s)"
           jq -n \
             --arg tool "Trivy FS" \
             --arg status "$STATUS" \
-            --arg summary "${TOTAL} HIGH/CRITICAL" \
+            --arg summary "$SUMMARY" \
             --rawfile details details.md \
             '{tool: $tool, status: $status, summary: $summary, details: $details}' \
             > counts-trivy-fs.json
