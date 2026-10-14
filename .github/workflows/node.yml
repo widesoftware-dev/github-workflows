@@ -187,10 +187,28 @@ jobs:
           set +e
           HIGH=0
           CRIT=0
+          IGNORED_GHSAS=""
           if [ "$PM" = "pnpm" ]; then
             pnpm audit --json 2>/dev/null > pm-audit.json || true
-            HIGH=$(jq '.metadata.vulnerabilities.high // 0' pm-audit.json 2>/dev/null || echo 0)
-            CRIT=$(jq '.metadata.vulnerabilities.critical // 0' pm-audit.json 2>/dev/null || echo 0)
+            # Conta por .advisories: o pnpm ja remove dali o que o repo lista em
+            # auditConfig.ignoreGhsas, mas .metadata.vulnerabilities continua
+            # contando o advisory ignorado (e travaria o gate mesmo com a excecao).
+            if jq -e '.advisories | type == "object"' pm-audit.json >/dev/null 2>&1; then
+              HIGH=$(jq '[.advisories[] | select(.severity=="high")] | length' pm-audit.json)
+              CRIT=$(jq '[.advisories[] | select(.severity=="critical")] | length' pm-audit.json)
+            else
+              # Formato inesperado: sem .advisories nao da pra saber o que foi
+              # ignorado, entao nao honra excecao nenhuma e conta pelo metadata.
+              HIGH=$(jq '.metadata.vulnerabilities.high // 0' pm-audit.json 2>/dev/null || echo 0)
+              CRIT=$(jq '.metadata.vulnerabilities.critical // 0' pm-audit.json 2>/dev/null || echo 0)
+            fi
+            # pnpm 9 le de package.json#pnpm.auditConfig; pnpm 10 de pnpm-workspace.yaml.
+            IGNORED_GHSAS=$(
+              {
+                jq -r '.pnpm.auditConfig.ignoreGhsas[]?' package.json 2>/dev/null
+                [ -f pnpm-workspace.yaml ] && yq '.auditConfig.ignoreGhsas[]' pnpm-workspace.yaml 2>/dev/null
+              } | grep -E '^GHSA-' | sort -u | paste -sd ' ' -
+            )
           elif [ "$PM" = "yarn" ]; then
             yarn npm audit --recursive --all --severity high --json 2>/dev/null > pm-audit.json || true
             HIGH=$(jq -s '[.[] | select(.children.Severity=="High")] | length' pm-audit.json 2>/dev/null || echo 0)
@@ -205,6 +223,7 @@ jobs:
             echo "high=$HIGH"
             echo "crit=$CRIT"
             echo "total=$TOTAL"
+            echo "ignored-ghsas=$IGNORED_GHSAS"
           } >> "$GITHUB_OUTPUT"
           [ "$TOTAL" -gt 0 ] && exit 1 || exit 0
 
@@ -215,11 +234,16 @@ jobs:
           HIGH: ${{ steps.scan.outputs.high }}
           CRIT: ${{ steps.scan.outputs.crit }}
           TOTAL: ${{ steps.scan.outputs.total }}
+          IGNORED_GHSAS: ${{ steps.scan.outputs.ignored-ghsas }}
         run: |
           set +e
           {
             echo "## Dependency audit (${PM})"
             echo ""
+            if [ -n "$IGNORED_GHSAS" ]; then
+              echo "Excecoes do repo em \`auditConfig.ignoreGhsas\` (fora do gate): ${IGNORED_GHSAS}"
+              echo ""
+            fi
             if [ "${TOTAL:-0}" -eq 0 ]; then
               echo "Nenhuma vulnerabilidade HIGH/CRITICAL."
             else
