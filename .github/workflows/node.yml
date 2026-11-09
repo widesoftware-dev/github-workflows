@@ -130,12 +130,12 @@ jobs:
       # Sem version: pnpm/action-setup le de package.json#packageManager.
       - name: Setup pnpm (from packageManager)
         if: inputs.package-manager == 'pnpm' && inputs.pnpm-version == ''
-        uses: pnpm/action-setup@v6.1.0
+        uses: pnpm/action-setup@v6.1.1
 
       # Com version: override explicito. Conflita com packageManager se ambos setados.
       - name: Setup pnpm (with version)
         if: inputs.package-manager == 'pnpm' && inputs.pnpm-version != ''
-        uses: pnpm/action-setup@v6.1.0
+        uses: pnpm/action-setup@v6.1.1
         with:
           version: ${{ inputs.pnpm-version }}
 
@@ -303,12 +303,12 @@ jobs:
       # Sem version: pnpm/action-setup le de package.json#packageManager.
       - name: Setup pnpm (from packageManager)
         if: inputs.package-manager == 'pnpm' && inputs.pnpm-version == ''
-        uses: pnpm/action-setup@v6.1.0
+        uses: pnpm/action-setup@v6.1.1
 
       # Com version: override explicito. Conflita com packageManager se ambos setados.
       - name: Setup pnpm (with version)
         if: inputs.package-manager == 'pnpm' && inputs.pnpm-version != ''
-        uses: pnpm/action-setup@v6.1.0
+        uses: pnpm/action-setup@v6.1.1
         with:
           version: ${{ inputs.pnpm-version }}
 
@@ -429,12 +429,12 @@ jobs:
       # Sem version: pnpm/action-setup le de package.json#packageManager.
       - name: Setup pnpm (from packageManager)
         if: inputs.package-manager == 'pnpm' && inputs.pnpm-version == ''
-        uses: pnpm/action-setup@v6.1.0
+        uses: pnpm/action-setup@v6.1.1
 
       # Com version: override explicito. Conflita com packageManager se ambos setados.
       - name: Setup pnpm (with version)
         if: inputs.package-manager == 'pnpm' && inputs.pnpm-version != ''
-        uses: pnpm/action-setup@v6.1.0
+        uses: pnpm/action-setup@v6.1.1
         with:
           version: ${{ inputs.pnpm-version }}
 
@@ -555,12 +555,12 @@ jobs:
       # Sem version: pnpm/action-setup le de package.json#packageManager.
       - name: Setup pnpm (from packageManager)
         if: inputs.package-manager == 'pnpm' && inputs.pnpm-version == ''
-        uses: pnpm/action-setup@v6.1.0
+        uses: pnpm/action-setup@v6.1.1
 
       # Com version: override explicito. Conflita com packageManager se ambos setados.
       - name: Setup pnpm (with version)
         if: inputs.package-manager == 'pnpm' && inputs.pnpm-version != ''
-        uses: pnpm/action-setup@v6.1.0
+        uses: pnpm/action-setup@v6.1.1
         with:
           version: ${{ inputs.pnpm-version }}
 
